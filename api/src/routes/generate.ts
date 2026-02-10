@@ -366,7 +366,13 @@ Tone: ${campaign.tone || 'Balanced'}
       const mapDescription = await generateMapDescription(campaignContext, description, mapType);
 
       // Generate procedural map image + Foundry VTT scene data
-      const dims = mapDescription.dimensions || { width: 30, height: 30 };
+      // Validate dimensions from AI (cap at reasonable sizes to prevent memory issues)
+      const rawDims = mapDescription.dimensions || { width: 30, height: 30 };
+      const dims = {
+        width: Math.min(Math.max(rawDims.width || 30, 20), 80),
+        height: Math.min(Math.max(rawDims.height || 30, 20), 80),
+      };
+      
       const generatedMap = await generateMap(
         mapType,
         dims.width,
@@ -402,7 +408,12 @@ Tone: ${campaign.tone || 'Balanced'}
       res.json({ map: mapEntity });
     } catch (error) {
       console.error('Generate map error:', error);
-      res.status(500).json({ error: 'Failed to generate map' });
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate map';
+      console.error('Error details:', errorMessage);
+      res.status(500).json({ 
+        error: 'Failed to generate map',
+        details: errorMessage 
+      });
     }
   }
 );

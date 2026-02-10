@@ -237,13 +237,31 @@ export async function generateMap(
   gridSize: number = 100,
   mapName: string = 'Generated Map'
 ): Promise<GeneratedMap> {
-  switch (mapType) {
+  // Validate and cap dimensions to prevent memory issues
+  const maxDimension = 80;
+  const safeWidth = Math.min(Math.max(gridWidth, 20), maxDimension);
+  const safeHeight = Math.min(Math.max(gridHeight, 20), maxDimension);
+
+  switch (mapType.toLowerCase()) {
     case 'cave':
-      return generateCaveMap(gridWidth, gridHeight, gridSize, mapName);
+    case 'wilderness':
+      return generateCaveMap(safeWidth, safeHeight, gridSize, mapName);
+    
     case 'dungeon':
     case 'castle':
+    case 'tavern':
+    case 'building':
+      return generateDungeonMap(safeWidth, safeHeight, gridSize, mapName);
+    
+    case 'town':
+    case 'city':
+      // Towns and cities use dungeon generator but with more rooms
+      return generateDungeonMap(safeWidth, safeHeight, gridSize, mapName);
+    
+    case 'other':
     default:
-      return generateDungeonMap(gridWidth, gridHeight, gridSize, mapName);
+      // Default to dungeon for unknown types
+      return generateDungeonMap(safeWidth, safeHeight, gridSize, mapName);
   }
 }
 

@@ -59,6 +59,12 @@ export class Map {
   @Column({ type: 'varchar', nullable: true })
   foundrySceneId?: string;
 
+  @Column({ type: 'timestamp', nullable: true })
+  lastSyncedAt?: Date;
+
+  @Column({ type: 'varchar', nullable: true })
+  syncStatus?: 'never' | 'pending' | 'synced' | 'error';
+
   @Column({ type: 'jsonb', nullable: true })
   details?: Record<string, unknown>;
 

@@ -82,6 +82,9 @@ export interface NPC {
     charisma: number;
   };
   tokenImageUrl?: string;
+  foundryActorId?: string;
+  lastSyncedAt?: string;
+  syncStatus?: 'never' | 'pending' | 'synced' | 'error';
   createdAt: string;
   updatedAt: string;
 }
@@ -97,6 +100,8 @@ export interface MapData {
   dimensions?: { width: number; height: number };
   imageUrl?: string;
   foundrySceneId?: string;
+  lastSyncedAt?: string;
+  syncStatus?: 'never' | 'pending' | 'synced' | 'error';
   version: number;
   createdAt: string;
   updatedAt: string;

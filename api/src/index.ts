@@ -8,6 +8,7 @@ import authRoutes from './routes/auth';
 import campaignRoutes from './routes/campaigns';
 import sessionRoutes from './routes/sessions';
 import generateRoutes from './routes/generate';
+import foundryRoutes from './routes/foundry';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -29,6 +30,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api', sessionRoutes);
 app.use('/api/generate', generateRoutes);
+app.use('/api/foundry', foundryRoutes);
 
 // Error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

@@ -264,6 +264,50 @@ class ApiService {
   async getCampaignTokens(campaignId: string): Promise<TokenData[]> {
     return this.request(`/api/generate/campaigns/${campaignId}/tokens`);
   }
+
+  // Foundry VTT Sync
+  async getFoundryStatus(): Promise<{ status: string; foundryUrl?: string }> {
+    return this.request('/api/foundry/health');
+  }
+
+  async syncMapToFoundry(mapId: string): Promise<{ success: boolean; foundrySceneId: string }> {
+    return this.request(`/api/foundry/scenes/${mapId}`, {
+      method: 'POST',
+    });
+  }
+
+  async syncNPCToFoundry(npcId: string): Promise<{ success: boolean; foundryActorId: string }> {
+    return this.request(`/api/foundry/actors/${npcId}`, {
+      method: 'POST',
+    });
+  }
+
+  async syncCampaignLore(campaignId: string): Promise<{ success: boolean; foundryJournalId: string }> {
+    return this.request(`/api/foundry/journals/${campaignId}`, {
+      method: 'POST',
+    });
+  }
+
+  async bulkSyncCampaign(campaignId: string): Promise<{ 
+    success: boolean; 
+    results: { 
+      scenes: { success: number; failed: number };
+      actors: { success: number; failed: number };
+      journals: { success: number; failed: number };
+    } 
+  }> {
+    return this.request(`/api/foundry/campaigns/${campaignId}/bulk`, {
+      method: 'POST',
+    });
+  }
+
+  async getFoundryScenes(): Promise<{ scenes: unknown[] }> {
+    return this.request('/api/foundry/scenes');
+  }
+
+  async getFoundryActors(): Promise<{ actors: unknown[] }> {
+    return this.request('/api/foundry/actors');
+  }
 }
 
 export const api = new ApiService();

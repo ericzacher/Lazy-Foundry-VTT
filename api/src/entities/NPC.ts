@@ -48,6 +48,15 @@ export class NPC {
   @Column({ type: 'uuid', array: true, default: [] })
   encounterSessionIds!: string[];
 
+  @Column({ type: 'varchar', nullable: true })
+  foundryActorId?: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastSyncedAt?: Date;
+
+  @Column({ type: 'varchar', nullable: true })
+  syncStatus?: 'never' | 'pending' | 'synced' | 'error';
+
   @CreateDateColumn()
   createdAt!: Date;
 
