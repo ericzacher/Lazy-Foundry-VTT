@@ -161,3 +161,60 @@ export interface PlayerBackground {
   hooks: string[];
   reasonsForAdventure: string;
 }
+
+export interface TokenData {
+  id: string;
+  campaignId: string;
+  npcId?: string;
+  name: string;
+  description?: string;
+  imageUrl?: string;
+  type: string; // 'character', 'npc', 'creature'
+  size: string; // 'tiny', 'small', 'medium', 'large', 'huge', 'gargantuan'
+  width: number; // Grid units
+  height: number; // Grid units
+  scale: number; // Visual scale (1.0 = 100%)
+  vision?: {
+    enabled: boolean;
+    range: number;
+    angle: number;
+    visionMode: string;
+    color: string | null;
+    attenuation: number;
+    brightness: number;
+    saturation: number;
+    contrast: number;
+  };
+  detection?: {
+    basicSight?: { enabled: boolean; range: number };
+    seeInvisibility?: { enabled: boolean; range: number };
+    senseInvisibility?: { enabled: boolean; range: number };
+    feelTremor?: { enabled: boolean; range: number };
+  };
+  foundryData?: {
+    actorId?: string;
+    actorLink: boolean;
+    disposition: number; // -1=hostile, 0=neutral, 1=friendly
+    displayName: number;
+    displayBars: number;
+    bar1: { attribute: string };
+    bar2: { attribute: string };
+    rotation: number;
+    alpha: number;
+    lockRotation: boolean;
+    hidden: boolean;
+    elevation: number;
+    effects: string[];
+    overlayEffect?: string;
+    light?: {
+      alpha: number;
+      angle: number;
+      bright: number;
+      dim: number;
+      color: string;
+      animation: { type: string; speed: number; intensity: number };
+    };
+  };
+  createdAt: string;
+  updatedAt: string;
+}

@@ -16,6 +16,7 @@ export function CampaignDetail() {
   const [generatingLore, setGeneratingLore] = useState(false);
   const [generatingNPCs, setGeneratingNPCs] = useState(false);
   const [generatingMap, setGeneratingMap] = useState(false);
+  const [generatingTokens, setGeneratingTokens] = useState<Set<string>>(new Set());
   const [showCreateSessionModal, setShowCreateSessionModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'sessions' | 'lore' | 'npcs' | 'maps'>('sessions');
   const [error, setError] = useState<string>('');
@@ -445,27 +446,74 @@ export function CampaignDetail() {
                     key={npc.id}
                     className="bg-gray-800 rounded-lg p-6 border border-gray-700"
                   >
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h3 className="text-lg font-semibold">{npc.name}</h3>
-                        {npc.role && (
-                          <span className="text-sm text-purple-400">{npc.role}</span>
+                    <div className="flex gap-4 mb-3">
+                      {/* Token Image */}
+                      <div className="flex-shrink-0">
+                        {npc.tokenImageUrl ? (
+                          <img
+                            src={`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}${npc.tokenImageUrl}`}
+                            alt={`${npc.name} token`}
+                            className="w-24 h-24 rounded-full border-2 border-gray-600 object-cover"
+                          />
+                        ) : (
+                          <div className="w-24 h-24 rounded-full border-2 border-gray-600 bg-gray-700 flex items-center justify-center">
+                            <span className="text-gray-500 text-xs">No Token</span>
+                          </div>
+                        )}
+                        <button
+                          onClick={async () => {
+                            setGeneratingTokens(prev => new Set(prev).add(npc.id));
+                            try {
+                              const { token } = await api.generateToken(id!, npc.id);
+                              // Update NPC with token URL
+                              setNpcs(prevNpcs => 
+                                prevNpcs.map(n => 
+                                  n.id === npc.id ? { ...n, tokenImageUrl: token.imageUrl } : n
+                                )
+                              );
+                            } catch (err) {
+                              console.error('Failed to generate token:', err);
+                            } finally {
+                              setGeneratingTokens(prev => {
+                                const next = new Set(prev);
+                                next.delete(npc.id);
+                                return next;
+                              });
+                            }
+                          }}
+                          disabled={generatingTokens.has(npc.id)}
+                          className="mt-2 w-full text-xs bg-blue-700 hover:bg-blue-600 text-white px-2 py-1 rounded transition-colors disabled:opacity-50"
+                        >
+                          {generatingTokens.has(npc.id) ? 'Generating...' : (npc.tokenImageUrl ? 'Regenerate' : 'Generate Token')}
+                        </button>
+                      </div>
+
+                      {/* NPC Info */}
+                      <div className="flex-grow">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <h3 className="text-lg font-semibold">{npc.name}</h3>
+                            {npc.role && (
+                              <span className="text-sm text-purple-400">{npc.role}</span>
+                            )}
+                          </div>
+                          {npc.stats && (
+                            <div className="text-xs text-gray-500 grid grid-cols-3 gap-1">
+                              <span>STR {npc.stats.strength}</span>
+                              <span>DEX {npc.stats.dexterity}</span>
+                              <span>CON {npc.stats.constitution}</span>
+                              <span>INT {npc.stats.intelligence}</span>
+                              <span>WIS {npc.stats.wisdom}</span>
+                              <span>CHA {npc.stats.charisma}</span>
+                            </div>
+                          )}
+                        </div>
+                        {npc.description && (
+                          <p className="text-gray-400 text-sm mb-2">{npc.description}</p>
                         )}
                       </div>
-                      {npc.stats && (
-                        <div className="text-xs text-gray-500 grid grid-cols-3 gap-1">
-                          <span>STR {npc.stats.strength}</span>
-                          <span>DEX {npc.stats.dexterity}</span>
-                          <span>CON {npc.stats.constitution}</span>
-                          <span>INT {npc.stats.intelligence}</span>
-                          <span>WIS {npc.stats.wisdom}</span>
-                          <span>CHA {npc.stats.charisma}</span>
-                        </div>
-                      )}
                     </div>
-                    {npc.description && (
-                      <p className="text-gray-400 text-sm mb-3">{npc.description}</p>
-                    )}
+
                     {npc.personality && (
                       <div className="text-sm space-y-1 mb-3">
                         {npc.personality.traits && (

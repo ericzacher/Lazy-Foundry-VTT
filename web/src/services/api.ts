@@ -1,4 +1,4 @@
-import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData } from '../types';
+import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -249,6 +249,20 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ partyLevel, partySize, encounterType }),
     });
+  }
+
+  // Tokens
+  async generateToken(
+    campaignId: string,
+    npcId: string
+  ): Promise<{ token: TokenData }> {
+    return this.request(`/api/generate/campaigns/${campaignId}/npcs/${npcId}/token`, {
+      method: 'POST',
+    });
+  }
+
+  async getCampaignTokens(campaignId: string): Promise<TokenData[]> {
+    return this.request(`/api/generate/campaigns/${campaignId}/tokens`);
   }
 }
 
