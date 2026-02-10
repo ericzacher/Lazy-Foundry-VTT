@@ -533,11 +533,58 @@ export function CampaignDetail() {
                   <div>
                     <h3 className="text-lg font-semibold">{map.name}</h3>
                     <span className="text-xs text-purple-400 uppercase">{map.type}</span>
+                    {map.dimensions && (
+                      <span className="text-xs text-gray-500 ml-2">
+                        {map.dimensions.width}×{map.dimensions.height} grid
+                      </span>
+                    )}
                   </div>
-                  <span className="text-xs text-gray-500">
-                    {new Date(map.createdAt).toLocaleDateString()}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {map.foundryData && (
+                      <a
+                        href={`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/generate/campaigns/${map.campaignId}/maps/${map.id}/foundry-export`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1 rounded transition-colors"
+                        title="Download Foundry VTT scene JSON"
+                      >
+                        ⬇ Foundry Export
+                      </a>
+                    )}
+                    <span className="text-xs text-gray-500">
+                      {new Date(map.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
                 </div>
+
+                {/* Map Image */}
+                {map.imageUrl && (
+                  <div className="mb-4 rounded-lg overflow-hidden border border-gray-600">
+                    <img
+                      src={`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}${map.imageUrl}`}
+                      alt={map.name}
+                      className="w-full h-auto max-h-[500px] object-contain bg-gray-900"
+                    />
+                  </div>
+                )}
+
+                {/* Foundry VTT Stats */}
+                {map.foundryData && (
+                  <div className="mb-4 flex flex-wrap gap-3 text-xs">
+                    <span className="bg-gray-700 px-2 py-1 rounded text-gray-300">
+                      🧱 {map.foundryData.walls?.length || 0} walls
+                    </span>
+                    <span className="bg-gray-700 px-2 py-1 rounded text-gray-300">
+                      💡 {map.foundryData.lights?.length || 0} lights
+                    </span>
+                    <span className="bg-gray-700 px-2 py-1 rounded text-gray-300">
+                      🚪 {map.foundryData.walls?.filter(w => w.door > 0).length || 0} doors
+                    </span>
+                    <span className="bg-gray-700 px-2 py-1 rounded text-green-400">
+                      ✅ Foundry VTT Ready
+                    </span>
+                  </div>
+                )}
 
                 {map.description && (
                   <p className="text-gray-400 text-sm mb-4 whitespace-pre-line">{map.description}</p>

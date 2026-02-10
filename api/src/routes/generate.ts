@@ -15,6 +15,7 @@ import {
   generateMapDescription,
   generateDetailedEncounters,
 } from '../services/ai';
+import { generateMap, saveMapImage } from '../services/mapGenerator';
 
 const router = Router();
 
@@ -358,20 +359,41 @@ Tone: ${campaign.tone || 'Balanced'}
 
       const mapDescription = await generateMapDescription(campaignContext, description, mapType);
 
-      // Save map to database
+      // Generate procedural map image + Foundry VTT scene data
+      const dims = mapDescription.dimensions || { width: 30, height: 30 };
+      const generatedMap = await generateMap(
+        mapType,
+        dims.width,
+        dims.height,
+        100, // 100px grid size for Foundry compatibility
+        mapDescription.name
+      );
+
+      // Save map to database first to get the ID
       const mapEntity = mapRepository().create({
         campaignId: campaign.id,
         sessionId: sessionId || undefined,
         name: mapDescription.name,
         description: mapDescription.description,
         type: mapType as MapType,
-        gridSize: mapDescription.gridSize || 50,
-        dimensions: mapDescription.dimensions || { width: 30, height: 30 },
+        gridSize: generatedMap.gridSize,
+        dimensions: { width: generatedMap.gridWidth, height: generatedMap.gridHeight },
+        details: mapDescription as unknown as Record<string, unknown>,
+        foundryData: generatedMap.foundryScene as unknown as Record<string, unknown>,
       });
 
       await mapRepository().save(mapEntity);
 
-      res.json({ map: { ...mapEntity, details: mapDescription } });
+      // Save the PNG image and update the entity with the URL
+      const imageUrl = await saveMapImage(
+        generatedMap.imageBuffer,
+        mapEntity.id,
+        generatedMap.fileName
+      );
+      mapEntity.imageUrl = imageUrl;
+      await mapRepository().save(mapEntity);
+
+      res.json({ map: mapEntity });
     } catch (error) {
       console.error('Generate map error:', error);
       res.status(500).json({ error: 'Failed to generate map' });
@@ -409,6 +431,64 @@ router.get(
     } catch (error) {
       console.error('Get maps error:', error);
       res.status(500).json({ error: 'Failed to get maps' });
+    }
+  }
+);
+
+// Export Foundry VTT scene JSON for a map
+router.get(
+  '/campaigns/:id/maps/:mapId/foundry-export',
+  [param('id').isUUID(), param('mapId').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const map = await mapRepository().findOne({
+        where: { id: req.params.mapId, campaignId: campaign.id },
+      });
+
+      if (!map) {
+        res.status(404).json({ error: 'Map not found' });
+        return;
+      }
+
+      if (!map.foundryData) {
+        res.status(400).json({ error: 'Map has no Foundry VTT scene data' });
+        return;
+      }
+
+      // Build the complete Foundry VTT scene export JSON
+      const apiBaseUrl = `${req.protocol}://${req.get('host')}`;
+      const sceneData = {
+        ...map.foundryData,
+        name: map.name,
+        background: map.imageUrl
+          ? { src: `${apiBaseUrl}${map.imageUrl}` }
+          : undefined,
+      };
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${map.name.replace(/[^a-zA-Z0-9]/g, '_')}-foundry-scene.json"`
+      );
+      res.json(sceneData);
+    } catch (error) {
+      console.error('Foundry export error:', error);
+      res.status(500).json({ error: 'Failed to export Foundry scene' });
     }
   }
 );

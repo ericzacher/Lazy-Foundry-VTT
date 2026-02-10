@@ -120,6 +120,32 @@ export interface MapData {
     atmosphere?: unknown;
     hazards?: unknown[];
   };
+  foundryData?: {
+    name: string;
+    width: number;
+    height: number;
+    grid: { type: number; size: number; color: string; alpha: number };
+    walls: Array<{
+      c: [number, number, number, number];
+      move: number;
+      sense: number;
+      sound: number;
+      door: number;
+      ds: number;
+    }>;
+    lights: Array<{
+      x: number;
+      y: number;
+      config: {
+        dim: number;
+        bright: number;
+        angle: number;
+        color: string;
+        alpha: number;
+        animation: { type: string; speed: number; intensity: number };
+      };
+    }>;
+  };
 }
 
 export interface PlayerBackground {

@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import { AppDataSource } from './config/database';
 import authRoutes from './routes/auth';
 import campaignRoutes from './routes/campaigns';
@@ -14,6 +15,9 @@ const port = process.env.PORT || 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Static file serving for generated assets (map images, etc.)
+app.use('/api/assets', express.static(path.resolve('/app/assets')));
 
 // Health check
 app.get('/health', (_req, res) => {

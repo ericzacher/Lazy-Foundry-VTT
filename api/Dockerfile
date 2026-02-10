@@ -6,6 +6,9 @@ COPY package*.json ./
 
 RUN npm install
 
+# Create assets directory for generated maps
+RUN mkdir -p /app/assets/maps
+
 COPY . .
 
 EXPOSE 3001

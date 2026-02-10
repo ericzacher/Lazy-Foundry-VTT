@@ -59,6 +59,12 @@ export class Map {
   @Column({ type: 'varchar', nullable: true })
   foundrySceneId?: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  details?: Record<string, unknown>;
+
+  @Column({ type: 'jsonb', nullable: true })
+  foundryData?: Record<string, unknown>;
+
   @Column({ type: 'int', default: 1 })
   version!: number;
 
