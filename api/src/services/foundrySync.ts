@@ -34,8 +34,8 @@ interface FoundryDocumentResult {
  * Authentication flow:
  * 1. POST /auth with adminPassword → get session cookie
  * 2. Ensure world is active (POST /setup to launch if needed)
- * 3. Find the Gamemaster user ID from the join page
- * 4. POST /join with userid → authenticate as GM user  
+ * 3. Discover GM user ID via 'getJoinData' socket event (returns world user list)
+ * 4. POST /join with JSON body {action, userid, password} — admin session bypasses passwords
  * 5. Connect socket.io with session as query parameter
  * 6. Use 'modifyDocument' socket event for all CRUD operations
  */
@@ -163,23 +163,25 @@ export class FoundrySyncService {
           `action=launchWorld&world=${encodeURIComponent(this.worldName)}`,
           this.sessionCookie
         );
-        // Wait for world to finish launching
-        await new Promise((r) => setTimeout(r, 5000));
-
-        const s2 = JSON.parse(
-          (await this.httpRequest('GET', '/api/status', undefined, this.sessionCookie)).body
-        );
-        if (!s2.active) {
-          console.error('[FoundrySync] Failed to launch world');
-          return false;
+        // Wait for world to finish launching (migrations can take time)
+        for (let i = 0; i < 6; i++) {
+          await new Promise((r) => setTimeout(r, 5000));
+          const s2 = JSON.parse(
+            (await this.httpRequest('GET', '/api/status', undefined, this.sessionCookie)).body
+          );
+          if (s2.active) {
+            console.log('[FoundrySync] World launched successfully');
+            break;
+          }
+          if (i === 5) {
+            console.error('[FoundrySync] Failed to launch world after 30s');
+            return false;
+          }
         }
-        console.log('[FoundrySync] World launched successfully');
       }
 
-      // Step 3: Find GM user ID
-      if (!this.gmUserId) {
-        await this.discoverGmUser();
-      }
+      // Step 3: Discover GM user ID via getJoinData socket event
+      await this.discoverAndPrepareGmUser();
 
       if (!this.gmUserId) {
         console.error('[FoundrySync] Could not find Gamemaster user ID');
@@ -187,11 +189,13 @@ export class FoundrySyncService {
       }
 
       // Step 4: Join as the GM user
+      // Use JSON body with admin session — this bypasses user passwords in Foundry v13
       const joinRes = await this.httpRequest(
         'POST',
         '/join',
-        `action=join&userid=${encodeURIComponent(this.gmUserId)}&password=`,
-        this.sessionCookie
+        JSON.stringify({ action: 'join', userid: this.gmUserId, password: '' }),
+        this.sessionCookie,
+        'application/json'
       );
       this.sessionCookie = joinRes.cookie;
 
@@ -204,6 +208,11 @@ export class FoundrySyncService {
       // Step 5: Connect socket.io with session as query parameter
       await this.connectSocket();
 
+      // Step 6: Clear GM password so browser users can join without one
+      // Foundry v13 auto-generates a random password for the GM user on world creation.
+      // We clear it here so users visiting http://localhost:30000/join can log in freely.
+      await this.clearGmPassword();
+
       return this.connected;
     } catch (error) {
       console.error('[FoundrySync] Connection failed:', error);
@@ -213,11 +222,25 @@ export class FoundrySyncService {
   }
 
   /**
-   * Discover the Gamemaster user ID from the world database.
-   * The GM user is auto-created by Foundry when a world is first launched.
+   * Discover the Gamemaster user ID using the admin socket's getJoinData event.
+   * 
+   * Foundry v13 exposes a 'getJoinData' socket event that returns the world's
+   * user list (the same data the /join page renders). This works reliably from
+   * an admin-authenticated socket connection without needing to be joined to
+   * the world first.
+   * 
+   * Password clearing happens separately in clearGmPassword() after the GM
+   * socket is connected, since modifyDocument requires a world-joined session.
    */
-  private async discoverGmUser(): Promise<void> {
-    // Connect a temporary socket to get the user list
+  private async discoverAndPrepareGmUser(): Promise<void> {
+    // Check env var first
+    if (process.env.FOUNDRY_GM_USER_ID) {
+      this.gmUserId = process.env.FOUNDRY_GM_USER_ID;
+      console.log(`[FoundrySync] Using GM user ID from env: ${this.gmUserId}`);
+      return;
+    }
+
+    // Connect a temporary socket with the admin session
     const tempSock = io(this.baseUrl, {
       transports: ['websocket'],
       reconnection: false,
@@ -231,65 +254,74 @@ export class FoundrySyncService {
         setTimeout(() => reject(new Error('Socket connect timeout')), 10000);
       });
 
-      // Wait for session event
-      const sessionData = await new Promise<FoundrySession>((resolve) => {
-        tempSock.once('session', (data: FoundrySession) => resolve(data));
-      });
-
-      // If we already have a userId from a previous session, use it
-      if (sessionData?.userId) {
-        this.gmUserId = sessionData.userId;
-        console.log(`[FoundrySync] Found GM user from session: ${this.gmUserId}`);
-        tempSock.disconnect();
-        return;
-      }
-
-      // Try to get world data to find users
-      // The "world" event returns full game data when authenticated
-      // But we're not authenticated yet, so we'll try getWorldStatus
-      const wsResult = await new Promise<unknown>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Timeout')), 5000);
-        tempSock.emit('getWorldStatus', (data: unknown) => {
+      // Use getJoinData to retrieve the world's user list
+      // This is the same event the /join page uses to populate the user dropdown
+      const joinData = await new Promise<{ users?: Array<{ _id: string; name: string; role: number }> }>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Timeout getting join data')), 10000);
+        tempSock.emit('getJoinData', (data: { users?: Array<{ _id: string; name: string; role: number }> }) => {
           clearTimeout(timer);
           resolve(data);
         });
-      }).catch(() => null);
+      });
 
-      if (wsResult && typeof wsResult === 'object' && 'users' in (wsResult as Record<string, unknown>)) {
-        const users = (wsResult as { users: Array<{ _id: string; role: number; name: string }> }).users;
-        const gm = users.find((u) => u.role === 4); // GAMEMASTER = 4
-        if (gm) {
-          this.gmUserId = gm._id;
-          console.log(`[FoundrySync] Found GM user from world status: ${this.gmUserId}`);
-        }
+      tempSock.disconnect();
+
+      const users = joinData.users;
+      if (!users || !Array.isArray(users) || users.length === 0) {
+        console.warn('[FoundrySync] No users returned from getJoinData');
+        return;
       }
 
-      tempSock.disconnect();
+      console.log(`[FoundrySync] Found ${users.length} user(s) in world`);
+
+      // Find the Gamemaster (role 4 = GAMEMASTER)
+      const gm = users.find((u) => u.role === 4);
+      if (!gm) {
+        console.error('[FoundrySync] No Gamemaster user found in world');
+        return;
+      }
+
+      this.gmUserId = gm._id;
+      console.log(`[FoundrySync] Found GM user: ${gm.name} (${gm._id})`);
     } catch (error) {
       tempSock.disconnect();
-      console.warn('[FoundrySync] Could not discover GM user via socket, trying alternative method');
-    }
-
-    // If we still don't have a GM user ID, try brute-force join
-    // Foundry returns specific errors that help us identify users
-    if (!this.gmUserId) {
-      // Try common user IDs or use the admin session to list users
-      // The Foundry world creates a default Gamemaster user on first launch
-      // We can try getting the /join page which may have embedded user data
-      console.log('[FoundrySync] Trying to find GM user from join page...');
-      const joinPage = await this.httpRequest('GET', '/join', undefined, this.sessionCookie || undefined);
-      
-      // The join page is rendered client-side by foundry.mjs
-      // It doesn't embed user IDs in the HTML
-      // As a fallback, try known user ID patterns
-      // Foundry uses randomID() which generates 16-char alphanumeric IDs
-      
-      // Let's try to connect with admin access and create/find the user via setup API
-      console.warn('[FoundrySync] GM user discovery failed. Will need manual configuration.');
-      console.warn('[FoundrySync] Set FOUNDRY_GM_USER_ID environment variable to the Gamemaster user ID.');
-      
-      // Check for env var
+      console.error('[FoundrySync] GM user discovery failed:', error);
       this.gmUserId = process.env.FOUNDRY_GM_USER_ID || null;
+    }
+  }
+
+  /**
+   * Clear the GM user's password so browser users can join Foundry without one.
+   * 
+   * Foundry v13 auto-generates a random password for the Gamemaster user when
+   * creating a world. This method uses the GM-authenticated socket to clear it
+   * via modifyDocument with the 'operation' wrapper format that Foundry v13 expects.
+   * 
+   * This is a non-critical step — if it fails, our service still works (we bypass
+   * passwords via admin session + JSON join), but browser users would be locked out.
+   */
+  private async clearGmPassword(): Promise<void> {
+    if (!this.socket?.connected || !this.gmUserId) return;
+
+    try {
+      const result = await this.emitAndWait('modifyDocument', {
+        type: 'User',
+        action: 'update',
+        operation: {
+          updates: [{ _id: this.gmUserId, password: '' }],
+          broadcast: false,
+          pack: null,
+        },
+      });
+
+      if (result.error) {
+        console.warn('[FoundrySync] Could not clear GM password:', result.error.message);
+      } else {
+        console.log('[FoundrySync] GM password cleared for browser access');
+      }
+    } catch (error) {
+      // Non-critical — log and continue
+      console.warn('[FoundrySync] Failed to clear GM password (non-critical):', error);
     }
   }
 

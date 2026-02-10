@@ -95,14 +95,17 @@ router.post(
         return;
       }
 
-      // Build scene data with Docker-internal URL for background image
-      // Foundry container accesses the API via Docker network hostname 'api:3001'
-      const apiBaseUrl = process.env.API_INTERNAL_URL || 'http://api:3001';
+      // Build scene data with Foundry-local path for background image
+      // The assets volume is mounted into Foundry at /data/Data/lazy-foundry-assets
+      // map.imageUrl is like /api/assets/maps/xxx.png -> strip /api/assets/ prefix
+      const foundryImagePath = map.imageUrl
+        ? `lazy-foundry-assets/${map.imageUrl.replace(/^\/api\/assets\//, '')}`
+        : undefined;
       const sceneData = {
         ...map.foundryData,
         name: map.name,
-        background: map.imageUrl
-          ? { src: `${apiBaseUrl}${map.imageUrl}` }
+        background: foundryImagePath
+          ? { src: foundryImagePath }
           : undefined,
       };
 
@@ -163,12 +166,15 @@ router.post(
         return;
       }
 
-      // Build actor data for Foundry (Docker-internal URL)
-      const apiBaseUrl = process.env.API_INTERNAL_URL || 'http://api:3001';
+      // Build actor data for Foundry with local file path
+      // Token images are in the shared assets volume mounted at lazy-foundry-assets/
+      const foundryTokenPath = npc.tokenImageUrl
+        ? `lazy-foundry-assets/${npc.tokenImageUrl.replace(/^\/api\/assets\//, '')}`
+        : undefined;
       const actorData = {
         name: npc.name,
         type: 'npc',
-        img: npc.tokenImageUrl ? `${apiBaseUrl}${npc.tokenImageUrl}` : undefined,
+        img: foundryTokenPath,
         system: {
           details: {
             biography: {
@@ -334,11 +340,11 @@ router.post(
       for (const map of maps) {
         if (!map.foundryData || !map.imageUrl) continue;
 
-        const apiBaseUrl = process.env.API_INTERNAL_URL || 'http://api:3001';
+        const foundryImagePath = `lazy-foundry-assets/${map.imageUrl.replace(/^\/api\/assets\//, '')}`;
         const sceneData = {
           ...map.foundryData,
           name: map.name,
-          background: { src: `${apiBaseUrl}${map.imageUrl}` },
+          background: { src: foundryImagePath },
         };
 
         const result = await foundrySyncService.createScene(sceneData);
@@ -361,11 +367,13 @@ router.post(
       });
 
       for (const npc of npcs) {
-        const apiBaseUrl = process.env.API_INTERNAL_URL || 'http://api:3001';
+        const foundryTokenPath = npc.tokenImageUrl
+          ? `lazy-foundry-assets/${npc.tokenImageUrl.replace(/^\/api\/assets\//, '')}`
+          : undefined;
         const actorData = {
           name: npc.name,
           type: 'npc' as const,
-          img: npc.tokenImageUrl ? `${apiBaseUrl}${npc.tokenImageUrl}` : undefined,
+          img: foundryTokenPath,
           system: {
             details: {
               biography: {
