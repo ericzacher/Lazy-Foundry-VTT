@@ -136,7 +136,9 @@ On first boot, the Foundry container will:
 
 ## 🧪 End-to-End Test Workflow
 
-Complete walkthrough from user registration to content appearing in Foundry VTT.
+Complete walkthrough from user registration to content appearing in Foundry VTT. All steps use `curl` and `python3` (for JSON parsing) — both are pre-installed on most Linux/macOS systems.
+
+> **Note**: If registration returns `"Email already registered"`, skip to Step 2 and login with existing credentials.
 
 ### Step 1: Register a User
 
@@ -349,6 +351,7 @@ curl -s -X POST "http://localhost:3001/api/foundry/campaigns/$CAMP_ID/bulk" \
 |--------|----------|-------------|
 | POST | `/api/auth/register` | Register new user (`email`, `username`, `password`) |
 | POST | `/api/auth/login` | Login (`email`, `password`) → JWT token |
+| GET | `/api/auth/me` | Get current user (requires auth) |
 
 ### Campaigns
 | Method | Endpoint | Description |
@@ -364,20 +367,25 @@ curl -s -X POST "http://localhost:3001/api/foundry/campaigns/$CAMP_ID/bulk" \
 |--------|----------|-------------|
 | POST | `/api/generate/campaigns/:id/lore` | Generate world lore |
 | POST | `/api/generate/campaigns/:id/npcs` | Generate NPCs (`count`: 1-5) |
-| POST | `/api/generate/campaigns/:id/maps` | Generate map (`description`, `mapType`) |
+| GET | `/api/generate/campaigns/:id/npcs` | List campaign NPCs |
 | POST | `/api/generate/campaigns/:id/npcs/:npcId/token` | Generate NPC token image |
-| POST | `/api/generate/campaigns/:id/backgrounds` | Generate player backgrounds |
-| POST | `/api/generate/campaigns/:id/encounters` | Generate encounters |
+| GET | `/api/generate/campaigns/:id/tokens` | List campaign tokens |
+| POST | `/api/generate/campaigns/:id/maps` | Generate map (`description`, `mapType`) |
 | GET | `/api/generate/campaigns/:id/maps` | List campaign maps |
 | GET | `/api/generate/campaigns/:id/maps/:mapId/foundry-export` | Download Foundry scene JSON |
+| POST | `/api/generate/campaigns/:id/backgrounds` | Generate player backgrounds |
+| POST | `/api/generate/campaigns/:id/encounters` | Generate encounters |
+| POST | `/api/generate/sessions/:id/scenario` | Generate session scenario |
+| POST | `/api/generate/sessions/:id/summarize` | Summarize session |
 
 ### Sessions
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/sessions/:campaignId` | List campaign sessions |
-| POST | `/api/sessions` | Create session |
+| GET | `/api/campaigns/:campaignId/sessions` | List campaign sessions |
+| POST | `/api/campaigns/:campaignId/sessions` | Create session (`title`, `description?`, `scheduledDate?`) |
 | GET | `/api/sessions/:id` | Get session details |
 | PUT | `/api/sessions/:id` | Update session |
+| DELETE | `/api/sessions/:id` | Delete session |
 
 ### Foundry VTT Sync
 | Method | Endpoint | Description |
