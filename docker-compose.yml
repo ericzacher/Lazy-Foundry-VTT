@@ -34,7 +34,6 @@ services:
       FOUNDRY_ADMIN_KEY: ${FOUNDRY_ADMIN_KEY:-admin}
       FOUNDRY_WORLD: ${FOUNDRY_WORLD:-test}
       FOUNDRY_GM_USER_ID: ${FOUNDRY_GM_USER_ID:-}
-      API_INTERNAL_URL: http://api:3001
     ports:
       - "3001:3001"
     volumes:
@@ -77,6 +76,7 @@ services:
     volumes:
       - foundry-data:/data
       - ./foundry/container_patches:/data/container_patches:ro
+      - assets:/data/Data/lazy-foundry-assets:ro
     ports:
       - "30000:30000"
     networks:

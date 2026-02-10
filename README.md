@@ -49,9 +49,11 @@ AI-powered D&D campaign management platform with Foundry VTT integration. Genera
 - **Actor sync**: Push NPCs with D&D 5e stats, biography, and token images
 - **Journal sync**: Push campaign lore as rich journal entries
 - **Bulk sync**: Sync all maps + NPCs + lore for a campaign in one call
+- **Shared volume**: Map PNGs and token images served via shared Docker volume (no cross-container HTTP)
 - Sync status tracking (never/pending/synced/error) persisted in database
 - Connection health monitoring endpoint
-- Automatic GM user discovery from Foundry's LevelDB
+- Automatic GM user discovery via `getJoinData` socket event
+- Auto-clears GM password so browser users can join without one
 
 ### 🎮 Foundry VTT Auto-Setup
 - **D&D 5e system** auto-installs on first container boot (via container patches)
@@ -470,11 +472,16 @@ Lazy-Foundry-VTT/
 Foundry VTT v13 does **not** have a REST API for document operations. All document CRUD is performed via **socket.io** WebSocket connections. The sync service implements this flow:
 
 1. **Admin Auth** — `POST /auth` with admin password → session cookie
-2. **World Launch** — Check `/api/status`, launch world via `POST /setup` if needed
-3. **GM Discovery** — Find the Gamemaster user ID from the join page
-4. **GM Join** — `POST /join` with GM user ID → authenticate as GM
-5. **Socket Connect** — Connect socket.io with session as query parameter
-6. **Document Operations** — `modifyDocument` socket event for all CRUD
+2. **World Launch** — Check `/api/status`, launch world via `POST /setup` if needed (retries up to 30s for migrations)
+3. **GM Discovery** — Connect admin socket, emit `getJoinData` → returns user list with roles, find role=4 (GAMEMASTER)
+4. **GM Join** — `POST /join` with JSON body `{action: "join", userid, password: ""}` — admin session bypasses password
+5. **Socket Connect** — Connect socket.io with session as query parameter → `session` event confirms `userId`
+6. **Password Clear** — `modifyDocument` UPDATE on User to clear GM password so browser users can join freely
+7. **Document Operations** — `modifyDocument` socket event for all CRUD (create/update/delete/get)
+
+### Asset Delivery (Shared Volume)
+
+Map images and token PNGs are stored by the API container in a Docker volume (`assets`). This volume is mounted read-only into the Foundry container at `/data/Data/lazy-foundry-assets/`. When syncing scenes and actors, the API writes **Foundry-local paths** (e.g., `lazy-foundry-assets/maps/xxx.png`) instead of HTTP URLs, so Foundry serves the images directly from its own filesystem — no cross-container HTTP required.
 
 ### Auto-Setup (Zero Config)
 
@@ -493,13 +500,14 @@ After the one-time license acceptance, everything is fully automated.
 - **Walls**: `c:[x0,y0,x1,y1]`, door types (0=none, 1=door, 2=secret)
 - **Lights**: Position, dim/bright radius, color, animation
 - **Fog**: Token vision enabled, exploration on
-- **Background**: PNG served from API container via Docker network
+- **Background**: PNG served from shared Docker volume at `lazy-foundry-assets/maps/`
 
 ### Foundry Actor Data Format (D&D 5e)
 - **Type**: `npc`
 - **Abilities**: STR, DEX, CON, INT, WIS, CHA with values
 - **Biography**: HTML-formatted description and background
-- **Token**: Display name on hover, health bar
+- **Token image**: Served from shared volume at `lazy-foundry-assets/tokens/`
+- **Token display**: Name on hover, health bar
 
 ## 📊 Database Schema
 
