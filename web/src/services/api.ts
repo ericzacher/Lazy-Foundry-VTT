@@ -1,4 +1,4 @@
-import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData } from '../types';
+import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -38,7 +38,10 @@ class ApiService {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(error.error || 'Request failed');
+      const message = error.details
+        ? `${error.error || 'Request failed'}: ${error.details}`
+        : error.error || 'Request failed';
+      throw new Error(message);
     }
 
     if (response.status === 204) {
@@ -249,6 +252,64 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ partyLevel, partySize, encounterType }),
     });
+  }
+
+  // Tokens
+  async generateToken(
+    campaignId: string,
+    npcId: string
+  ): Promise<{ token: TokenData }> {
+    return this.request(`/api/generate/campaigns/${campaignId}/npcs/${npcId}/token`, {
+      method: 'POST',
+    });
+  }
+
+  async getCampaignTokens(campaignId: string): Promise<TokenData[]> {
+    return this.request(`/api/generate/campaigns/${campaignId}/tokens`);
+  }
+
+  // Foundry VTT Sync
+  async getFoundryStatus(): Promise<{ status: string; foundryUrl?: string }> {
+    return this.request('/api/foundry/health');
+  }
+
+  async syncMapToFoundry(mapId: string): Promise<{ success: boolean; foundrySceneId: string }> {
+    return this.request(`/api/foundry/scenes/${mapId}`, {
+      method: 'POST',
+    });
+  }
+
+  async syncNPCToFoundry(npcId: string): Promise<{ success: boolean; foundryActorId: string }> {
+    return this.request(`/api/foundry/actors/${npcId}`, {
+      method: 'POST',
+    });
+  }
+
+  async syncCampaignLore(campaignId: string): Promise<{ success: boolean; foundryJournalId: string }> {
+    return this.request(`/api/foundry/journals/${campaignId}`, {
+      method: 'POST',
+    });
+  }
+
+  async bulkSyncCampaign(campaignId: string): Promise<{ 
+    success: boolean; 
+    results: { 
+      scenes: { success: number; failed: number };
+      actors: { success: number; failed: number };
+      journals: { success: number; failed: number };
+    } 
+  }> {
+    return this.request(`/api/foundry/campaigns/${campaignId}/bulk`, {
+      method: 'POST',
+    });
+  }
+
+  async getFoundryScenes(): Promise<{ scenes: unknown[] }> {
+    return this.request('/api/foundry/scenes');
+  }
+
+  async getFoundryActors(): Promise<{ actors: unknown[] }> {
+    return this.request('/api/foundry/actors');
   }
 }
 

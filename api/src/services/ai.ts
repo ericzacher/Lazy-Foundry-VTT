@@ -279,19 +279,51 @@ Campaign Context: ${campaignContext}
 Location Description: ${locationDescription}
 Map Type: ${mapType}
 
-Create a detailed map layout. Respond with a JSON object containing:
-- name: Name of this location
-- description: Overall description of the location (2-3 paragraphs)
-- type: The map type (dungeon/tavern/wilderness/town/castle/cave/other)
-- dimensions: Object with width and height in grid squares (reasonable size, e.g. 30x30 for a dungeon)
-- gridSize: Grid square size in pixels (default 50)
-- rooms: Array of 4-8 rooms/areas, each with name, description, features array, and connections array (which rooms connect to it)
-- pointsOfInterest: Array of 3-5 notable features, each with name, description, and type (trap/treasure/secret/npc/environmental)
-- encounters: Array of 2-3 possible encounters at specific locations, each with location, description, difficulty
-- atmosphere: A paragraph describing the mood, sounds, smells of this place
-- hazards: Array of environmental hazards or dangers
+Create a detailed map layout. Respond with VALID JSON only. Use this exact structure:
 
-Respond ONLY with valid JSON.`;
+{
+  "name": "Location Name",
+  "description": "Overall description",
+  "type": "${mapType}",
+  "dimensions": {"width": 30, "height": 30},
+  "gridSize": 50,
+  "rooms": [
+    {
+      "name": "Room Name",
+      "description": "Room description",
+      "features": ["feature1", "feature2"],
+      "connections": ["Connected Room Name"]
+    }
+  ],
+  "pointsOfInterest": [
+    {
+      "name": "POI Name",
+      "description": "POI description",
+      "type": "treasure"
+    }
+  ],
+  "encounters": [
+    {
+      "location": "Room Name",
+      "description": "Encounter description",
+      "difficulty": "medium"
+    }
+  ],
+  "atmosphere": "Description of mood and atmosphere",
+  "hazards": [
+    {
+      "name": "Hazard Name",
+      "description": "Hazard description"
+    }
+  ]
+}
+
+Important: 
+- Keep dimensions between 20-60 for width and height
+- Create 4-8 rooms
+- Do NOT add extra fields to encounters (no "name" field in encounters)
+- Ensure all JSON is properly formatted
+- Use double quotes for all strings`;
 
   const response = await openai.chat.completions.create({
     model: getModel(),

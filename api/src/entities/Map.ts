@@ -14,8 +14,10 @@ export enum MapType {
   TAVERN = 'tavern',
   WILDERNESS = 'wilderness',
   TOWN = 'town',
+  CITY = 'city',
   CASTLE = 'castle',
   CAVE = 'cave',
+  BUILDING = 'building',
   OTHER = 'other',
 }
 
@@ -58,6 +60,12 @@ export class Map {
 
   @Column({ type: 'varchar', nullable: true })
   foundrySceneId?: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastSyncedAt?: Date;
+
+  @Column({ type: 'varchar', nullable: true })
+  syncStatus?: 'never' | 'pending' | 'synced' | 'error';
 
   @Column({ type: 'jsonb', nullable: true })
   details?: Record<string, unknown>;

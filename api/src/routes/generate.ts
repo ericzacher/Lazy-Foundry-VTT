@@ -5,6 +5,7 @@ import { Campaign } from '../entities/Campaign';
 import { Session } from '../entities/Session';
 import { NPC } from '../entities/NPC';
 import { Map, MapType } from '../entities/Map';
+import { Token } from '../entities/Token';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import {
   generateCampaignLore,
@@ -16,6 +17,10 @@ import {
   generateDetailedEncounters,
 } from '../services/ai';
 import { generateMap, saveMapImage } from '../services/mapGenerator';
+import {
+  generateTokenFromDescription,
+  saveTokenImage,
+} from '../services/tokenGenerator';
 
 const router = Router();
 
@@ -23,6 +28,7 @@ const campaignRepository = () => AppDataSource.getRepository(Campaign);
 const sessionRepository = () => AppDataSource.getRepository(Session);
 const npcRepository = () => AppDataSource.getRepository(NPC);
 const mapRepository = () => AppDataSource.getRepository(Map);
+const tokenRepository = () => AppDataSource.getRepository(Token);
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
@@ -328,7 +334,7 @@ router.post(
   [
     param('id').isUUID(),
     body('description').notEmpty().trim(),
-    body('mapType').optional().isIn(['dungeon', 'tavern', 'wilderness', 'town', 'castle', 'cave', 'other']),
+    body('mapType').optional().isIn(['dungeon', 'tavern', 'wilderness', 'town', 'city', 'castle', 'cave', 'building', 'other']),
     body('sessionId').optional().isUUID(),
   ],
   async (req: AuthRequest, res: Response): Promise<void> => {
@@ -360,7 +366,13 @@ Tone: ${campaign.tone || 'Balanced'}
       const mapDescription = await generateMapDescription(campaignContext, description, mapType);
 
       // Generate procedural map image + Foundry VTT scene data
-      const dims = mapDescription.dimensions || { width: 30, height: 30 };
+      // Validate dimensions from AI (cap at reasonable sizes to prevent memory issues)
+      const rawDims = mapDescription.dimensions || { width: 30, height: 30 };
+      const dims = {
+        width: Math.min(Math.max(rawDims.width || 30, 20), 80),
+        height: Math.min(Math.max(rawDims.height || 30, 20), 80),
+      };
+      
       const generatedMap = await generateMap(
         mapType,
         dims.width,
@@ -396,7 +408,12 @@ Tone: ${campaign.tone || 'Balanced'}
       res.json({ map: mapEntity });
     } catch (error) {
       console.error('Generate map error:', error);
-      res.status(500).json({ error: 'Failed to generate map' });
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate map';
+      console.error('Error details:', errorMessage);
+      res.status(500).json({ 
+        error: 'Failed to generate map',
+        details: errorMessage 
+      });
     }
   }
 );
@@ -544,6 +561,134 @@ ${campaign.worldLore ? `World Lore: ${JSON.stringify(campaign.worldLore).substri
     } catch (error) {
       console.error('Generate encounters error:', error);
       res.status(500).json({ error: 'Failed to generate encounters' });
+    }
+  }
+);
+
+// Generate token for NPC
+router.post(
+  '/campaigns/:id/npcs/:npcId/token',
+  [param('id').isUUID(), param('npcId').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const npc = await npcRepository().findOne({
+        where: { id: req.params.npcId, campaignId: campaign.id },
+      });
+
+      if (!npc) {
+        res.status(404).json({ error: 'NPC not found' });
+        return;
+      }
+
+      // Determine token size from NPC stats or description
+      let size = 'medium';
+      if (npc.stats && typeof npc.stats === 'object') {
+        const stats = npc.stats as { size?: string };
+        size = stats.size?.toLowerCase() || 'medium';
+      }
+
+      // Generate token image
+      const tokenData = await generateTokenFromDescription(
+        npc.name,
+        npc.description || npc.personality?.toString() || '',
+        npc.id,
+        size,
+        npc.role?.toLowerCase().includes('enemy') ? 'npc' : 'character'
+      );
+
+      // Save token image
+      const imageUrl = await saveTokenImage(
+        tokenData.imageBuffer,
+        npc.id,
+        npc.name
+      );
+
+      // Create token entity
+      const token = tokenRepository().create({
+        campaignId: campaign.id,
+        npcId: npc.id,
+        name: npc.name,
+        description: npc.description,
+        imageUrl,
+        type: npc.role?.toLowerCase().includes('enemy') ? 'npc' : 'character',
+        size: tokenData.size,
+        width: tokenData.width,
+        height: tokenData.height,
+        scale: 1.0,
+        vision: tokenData.foundryData.vision,
+        detection: tokenData.foundryData.detection,
+        foundryData: tokenData.foundryData,
+      });
+
+      await tokenRepository().save(token);
+
+      // Update NPC with token image URL
+      npc.tokenImageUrl = imageUrl;
+      await npcRepository().save(npc);
+
+      res.json({
+        token: {
+          id: token.id,
+          name: token.name,
+          imageUrl: token.imageUrl,
+          size: token.size,
+          width: token.width,
+          height: token.height,
+          foundryData: token.foundryData,
+        },
+      });
+    } catch (error) {
+      console.error('Generate token error:', error);
+      res.status(500).json({ error: 'Failed to generate token' });
+    }
+  }
+);
+
+// Get tokens for a campaign
+router.get(
+  '/campaigns/:id/tokens',
+  [param('id').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const tokens = await tokenRepository().find({
+        where: { campaignId: campaign.id },
+        order: { createdAt: 'DESC' },
+      });
+
+      res.json(tokens);
+    } catch (error) {
+      console.error('Get tokens error:', error);
+      res.status(500).json({ error: 'Failed to retrieve tokens' });
     }
   }
 );

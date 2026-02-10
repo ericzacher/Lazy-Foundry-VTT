@@ -16,6 +16,9 @@ export function CampaignDetail() {
   const [generatingLore, setGeneratingLore] = useState(false);
   const [generatingNPCs, setGeneratingNPCs] = useState(false);
   const [generatingMap, setGeneratingMap] = useState(false);
+  const [generatingTokens, setGeneratingTokens] = useState<Set<string>>(new Set());
+  const [syncingToFoundry, setSyncingToFoundry] = useState<Set<string>>(new Set());
+  const [foundryStatus, setFoundryStatus] = useState<'unknown' | 'connected' | 'disconnected'>('unknown');
   const [showCreateSessionModal, setShowCreateSessionModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'sessions' | 'lore' | 'npcs' | 'maps'>('sessions');
   const [error, setError] = useState<string>('');
@@ -68,6 +71,18 @@ export function CampaignDetail() {
     }
   }, [id, loadCampaign, loadSessions, loadNPCs, loadMaps]);
 
+  useEffect(() => {
+    const checkFoundryStatus = async () => {
+      try {
+        await api.getFoundryStatus();
+        setFoundryStatus('connected');
+      } catch {
+        setFoundryStatus('disconnected');
+      }
+    };
+    checkFoundryStatus();
+  }, []);
+
   const handleGenerateLore = async () => {
     if (!campaign) return;
     setGeneratingLore(true);
@@ -99,6 +114,62 @@ export function CampaignDetail() {
       console.error('Failed to generate NPCs:', err);
     } finally {
       setGeneratingNPCs(false);
+    }
+  };
+
+  const handleSyncMapToFoundry = async (mapId: string) => {
+    setSyncingToFoundry(new Set(syncingToFoundry).add(mapId));
+    setError('');
+    try {
+      await api.syncMapToFoundry(mapId);
+      // Reload maps to get updated sync status
+      await loadMaps();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to sync map to Foundry';
+      setError(errorMsg);
+      console.error('Failed to sync map:', err);
+    } finally {
+      const newSyncing = new Set(syncingToFoundry);
+      newSyncing.delete(mapId);
+      setSyncingToFoundry(newSyncing);
+    }
+  };
+
+  const handleSyncNPCToFoundry = async (npcId: string) => {
+    setSyncingToFoundry(new Set(syncingToFoundry).add(npcId));
+    setError('');
+    try {
+      await api.syncNPCToFoundry(npcId);
+      // Reload NPCs to get updated sync status
+      await loadNPCs();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to sync NPC to Foundry';
+      setError(errorMsg);
+      console.error('Failed to sync NPC:', err);
+    } finally {
+      const newSyncing = new Set(syncingToFoundry);
+      newSyncing.delete(npcId);
+      setSyncingToFoundry(newSyncing);
+    }
+  };
+
+  const handleBulkSyncCampaign = async () => {
+    if (!campaign || !confirm('Sync all maps and NPCs to Foundry VTT?')) return;
+    setSyncingToFoundry(new Set(['bulk']));
+    setError('');
+    try {
+      const result = await api.bulkSyncCampaign(campaign.id);
+      alert(`Sync completed!\nScenes: ${result.results.scenes.success} synced, ${result.results.scenes.failed} failed\nActors: ${result.results.actors.success} synced, ${result.results.actors.failed} failed\nJournals: ${result.results.journals.success} synced, ${result.results.journals.failed} failed`);
+      await loadMaps();
+      await loadNPCs();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to sync campaign to Foundry';
+      setError(errorMsg);
+      console.error('Failed to bulk sync:', err);
+    } finally {
+      const newSyncing = new Set(syncingToFoundry);
+      newSyncing.delete('bulk');
+      setSyncingToFoundry(newSyncing);
     }
   };
 
@@ -199,7 +270,34 @@ export function CampaignDetail() {
               >
                 {generatingNPCs ? 'Generating...' : 'Generate NPCs'}
               </button>
+              {foundryStatus === 'connected' && (
+                <button
+                  onClick={handleBulkSyncCampaign}
+                  disabled={syncingToFoundry.has('bulk')}
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded font-medium disabled:opacity-50 flex items-center gap-2"
+                  title="Sync all content to Foundry VTT"
+                >
+                  <span>🔄</span>
+                  {syncingToFoundry.has('bulk') ? 'Syncing to Foundry...' : 'Bulk Sync to Foundry'}
+                </button>
+              )}
             </div>
+          </div>
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-sm text-gray-400">Foundry VTT:</span>
+            <span
+              className={`text-xs px-2 py-1 rounded ${
+                foundryStatus === 'connected'
+                  ? 'bg-green-700 text-green-200'
+                  : foundryStatus === 'disconnected'
+                  ? 'bg-red-700 text-red-200'
+                  : 'bg-gray-700 text-gray-400'
+              }`}
+            >
+              {foundryStatus === 'connected' && '✓ Connected'}
+              {foundryStatus === 'disconnected' && '✗ Disconnected'}
+              {foundryStatus === 'unknown' && '? Checking...'}
+            </span>
           </div>
           {campaign.description && (
             <p className="mt-4 text-gray-300">{campaign.description}</p>
@@ -445,27 +543,103 @@ export function CampaignDetail() {
                     key={npc.id}
                     className="bg-gray-800 rounded-lg p-6 border border-gray-700"
                   >
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h3 className="text-lg font-semibold">{npc.name}</h3>
-                        {npc.role && (
-                          <span className="text-sm text-purple-400">{npc.role}</span>
+                    <div className="flex gap-4 mb-3">
+                      {/* Token Image */}
+                      <div className="flex-shrink-0">
+                        {npc.tokenImageUrl ? (
+                          <img
+                            src={`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}${npc.tokenImageUrl}`}
+                            alt={`${npc.name} token`}
+                            className="w-24 h-24 rounded-full border-2 border-gray-600 object-cover"
+                          />
+                        ) : (
+                          <div className="w-24 h-24 rounded-full border-2 border-gray-600 bg-gray-700 flex items-center justify-center">
+                            <span className="text-gray-500 text-xs">No Token</span>
+                          </div>
+                        )}
+                        <button
+                          onClick={async () => {
+                            setGeneratingTokens(prev => new Set(prev).add(npc.id));
+                            try {
+                              const { token } = await api.generateToken(id!, npc.id);
+                              // Update NPC with token URL
+                              setNpcs(prevNpcs => 
+                                prevNpcs.map(n => 
+                                  n.id === npc.id ? { ...n, tokenImageUrl: token.imageUrl } : n
+                                )
+                              );
+                            } catch (err) {
+                              console.error('Failed to generate token:', err);
+                            } finally {
+                              setGeneratingTokens(prev => {
+                                const next = new Set(prev);
+                                next.delete(npc.id);
+                                return next;
+                              });
+                            }
+                          }}
+                          disabled={generatingTokens.has(npc.id)}
+                          className="mt-2 w-full text-xs bg-blue-700 hover:bg-blue-600 text-white px-2 py-1 rounded transition-colors disabled:opacity-50"
+                        >
+                          {generatingTokens.has(npc.id) ? 'Generating...' : (npc.tokenImageUrl ? 'Regenerate' : 'Generate Token')}
+                        </button>
+                      </div>
+
+                      {/* NPC Info */}
+                      <div className="flex-grow">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <h3 className="text-lg font-semibold">{npc.name}</h3>
+                            {npc.role && (
+                              <span className="text-sm text-purple-400">{npc.role}</span>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-1 items-end">
+                            {/* Foundry Sync Status */}
+                            {npc.syncStatus && (
+                              <span
+                                className={`text-xs px-2 py-1 rounded ${
+                                  npc.syncStatus === 'synced'
+                                    ? 'bg-green-700 text-green-200'
+                                    : npc.syncStatus === 'error'
+                                    ? 'bg-red-700 text-red-200'
+                                    : 'bg-gray-700 text-gray-400'
+                                }`}
+                              >
+                                {npc.syncStatus === 'synced' && '✓ Synced'}
+                                {npc.syncStatus === 'error' && '✗ Error'}
+                                {npc.syncStatus === 'never' && 'Not Synced'}
+                              </span>
+                            )}
+                            {/* Foundry Sync Button */}
+                            {foundryStatus === 'connected' && (
+                              <button
+                                onClick={() => handleSyncNPCToFoundry(npc.id)}
+                                disabled={syncingToFoundry.has(npc.id)}
+                                className="text-xs bg-purple-700 hover:bg-purple-600 disabled:bg-gray-700 disabled:cursor-not-allowed text-white px-2 py-1 rounded transition-colors"
+                                title="Sync to Foundry VTT"
+                              >
+                                {syncingToFoundry.has(npc.id) ? '⏳ Syncing...' : '🔄 Sync'}
+                              </button>
+                            )}
+                            {npc.stats && (
+                              <div className="text-xs text-gray-500 grid grid-cols-3 gap-1 mt-1">
+                                <span>STR {npc.stats.strength}</span>
+                                <span>DEX {npc.stats.dexterity}</span>
+                                <span>CON {npc.stats.constitution}</span>
+                                <span>INT {npc.stats.intelligence}</span>
+                                <span>WIS {npc.stats.wisdom}</span>
+                                <span>CHA {npc.stats.charisma}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {npc.description && (
+                          <p className="text-gray-400 text-sm mb-2">{npc.description}</p>
                         )}
                       </div>
-                      {npc.stats && (
-                        <div className="text-xs text-gray-500 grid grid-cols-3 gap-1">
-                          <span>STR {npc.stats.strength}</span>
-                          <span>DEX {npc.stats.dexterity}</span>
-                          <span>CON {npc.stats.constitution}</span>
-                          <span>INT {npc.stats.intelligence}</span>
-                          <span>WIS {npc.stats.wisdom}</span>
-                          <span>CHA {npc.stats.charisma}</span>
-                        </div>
-                      )}
                     </div>
-                    {npc.description && (
-                      <p className="text-gray-400 text-sm mb-3">{npc.description}</p>
-                    )}
+
                     {npc.personality && (
                       <div className="text-sm space-y-1 mb-3">
                         {npc.personality.traits && (
@@ -540,6 +714,33 @@ export function CampaignDetail() {
                     )}
                   </div>
                   <div className="flex items-center gap-2">
+                    {/* Foundry Sync Status */}
+                    {map.syncStatus && (
+                      <span
+                        className={`text-xs px-2 py-1 rounded ${
+                          map.syncStatus === 'synced'
+                            ? 'bg-green-700 text-green-200'
+                            : map.syncStatus === 'error'
+                            ? 'bg-red-700 text-red-200'
+                            : 'bg-gray-700 text-gray-400'
+                        }`}
+                      >
+                        {map.syncStatus === 'synced' && '✓ Synced'}
+                        {map.syncStatus === 'error' && '✗ Error'}
+                        {map.syncStatus === 'never' && 'Not Synced'}
+                      </span>
+                    )}
+                    {/* Foundry Sync Button */}
+                    {foundryStatus === 'connected' && map.foundryData && (
+                      <button
+                        onClick={() => handleSyncMapToFoundry(map.id)}
+                        disabled={syncingToFoundry.has(map.id)}
+                        className="text-xs bg-purple-700 hover:bg-purple-600 disabled:bg-gray-700 disabled:cursor-not-allowed text-white px-3 py-1 rounded transition-colors"
+                        title="Sync to Foundry VTT"
+                      >
+                        {syncingToFoundry.has(map.id) ? '⏳ Syncing...' : '🔄 Sync to Foundry'}
+                      </button>
+                    )}
                     {map.foundryData && (
                       <button
                         onClick={async () => {
@@ -552,7 +753,7 @@ export function CampaignDetail() {
                         className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1 rounded transition-colors cursor-pointer"
                         title="Download Foundry VTT scene JSON"
                       >
-                        ⬇ Foundry Export
+                        ⬇ Export JSON
                       </button>
                     )}
                     <span className="text-xs text-gray-500">
