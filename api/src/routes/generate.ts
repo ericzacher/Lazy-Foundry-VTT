@@ -334,7 +334,7 @@ router.post(
   [
     param('id').isUUID(),
     body('description').notEmpty().trim(),
-    body('mapType').optional().isIn(['dungeon', 'tavern', 'wilderness', 'town', 'castle', 'cave', 'other']),
+    body('mapType').optional().isIn(['dungeon', 'tavern', 'wilderness', 'town', 'city', 'castle', 'cave', 'building', 'other']),
     body('sessionId').optional().isUUID(),
   ],
   async (req: AuthRequest, res: Response): Promise<void> => {

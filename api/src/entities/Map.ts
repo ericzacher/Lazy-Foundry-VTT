@@ -14,8 +14,10 @@ export enum MapType {
   TAVERN = 'tavern',
   WILDERNESS = 'wilderness',
   TOWN = 'town',
+  CITY = 'city',
   CASTLE = 'castle',
   CAVE = 'cave',
+  BUILDING = 'building',
   OTHER = 'other',
 }
 

@@ -93,7 +93,7 @@ export interface GeneratedMap {
 }
 
 // ============================================================
-// Color Palette
+// Color Palettes
 // ============================================================
 
 const COLORS = {
@@ -103,6 +103,29 @@ const COLORS = {
   door: { r: 139, g: 90, b: 43 },       // wood brown
   grid: { r: 100, g: 90, b: 80 },       // subtle grid lines
   roomHighlight: { r: 200, g: 180, b: 150 }, // lighter room center
+};
+
+const CITY_COLORS = {
+  street: { r: 160, g: 155, b: 140 },      // cobblestone grey
+  building: { r: 90, g: 70, b: 55 },       // dark wood/stone walls
+  buildingFloor: { r: 190, g: 170, b: 140 },// indoor floor
+  plaza: { r: 195, g: 185, b: 160 },       // lighter open area
+  grass: { r: 90, g: 130, b: 65 },         // park / garden patches
+  water: { r: 70, g: 120, b: 160 },        // fountain / pond
+  market: { r: 175, g: 145, b: 100 },      // market stall area
+  door: { r: 139, g: 90, b: 43 },          // wood brown
+  grid: { r: 120, g: 115, b: 105 },        // subtle grid lines
+};
+
+const BUILDING_COLORS = {
+  wall: { r: 70, g: 55, b: 42 },           // timber frame
+  floor: { r: 200, g: 180, b: 145 },       // wooden planks
+  corridor: { r: 175, g: 160, b: 130 },    // hallway
+  door: { r: 139, g: 90, b: 43 },          // wood door
+  furniture: { r: 120, g: 85, b: 55 },     // furniture brown
+  grid: { r: 110, g: 100, b: 85 },         // subtle grid lines
+  rug: { r: 140, g: 50, b: 50 },           // decorative rug
+  hearth: { r: 180, g: 80, b: 30 },        // fireplace glow
 };
 
 // ============================================================
@@ -247,22 +270,578 @@ export async function generateMap(
     case 'wilderness':
       return generateCaveMap(safeWidth, safeHeight, gridSize, mapName);
     
-    case 'dungeon':
-    case 'castle':
-    case 'tavern':
-    case 'building':
-      return generateDungeonMap(safeWidth, safeHeight, gridSize, mapName);
-    
     case 'town':
     case 'city':
-      // Towns and cities use dungeon generator but with more rooms
+      return generateCityMap(safeWidth, safeHeight, gridSize, mapName);
+    
+    case 'building':
+    case 'tavern':
+      return generateBuildingMap(safeWidth, safeHeight, gridSize, mapName);
+
+    case 'dungeon':
+    case 'castle':
       return generateDungeonMap(safeWidth, safeHeight, gridSize, mapName);
     
     case 'other':
     default:
-      // Default to dungeon for unknown types
       return generateDungeonMap(safeWidth, safeHeight, gridSize, mapName);
   }
+}
+
+// ============================================================
+// City / Town Map Generator
+// ============================================================
+
+/**
+ * Generates a top-down city/town map with buildings, streets, and plazas.
+ * Buildings are solid blocks with walls; streets are open passable terrain.
+ */
+export async function generateCityMap(
+  gridWidth: number = 40,
+  gridHeight: number = 30,
+  gridSize: number = 100,
+  mapName: string = 'Generated City'
+): Promise<GeneratedMap> {
+  // City tile types: 0=building(wall), 1=street(floor), 2=plaza, 3=grass, 4=water, 5=market
+  const tileMap: number[][] = Array.from({ length: gridHeight }, () =>
+    Array(gridWidth).fill(1) // Start with all streets
+  );
+
+  const rooms: RoomData[] = [];
+  const doors: DoorData[] = [];
+  let roomId = 0;
+
+  // Step 1: Lay down main roads (horizontal and vertical arteries)
+  const mainRoadH = Math.floor(gridHeight / 2) + Math.floor(Math.random() * 3) - 1;
+  const mainRoadV = Math.floor(gridWidth / 2) + Math.floor(Math.random() * 3) - 1;
+
+  // Step 2: Create a grid of city blocks separated by streets
+  const streetWidth = 2;
+  const minBlockSize = 5;
+  const maxBlockSize = 9;
+
+  // Generate variable-sized city blocks
+  const blockStartsX: number[] = [0];
+  let cx = streetWidth; // Start after left edge street
+  while (cx < gridWidth - minBlockSize) {
+    const blockW = minBlockSize + Math.floor(Math.random() * (maxBlockSize - minBlockSize + 1));
+    if (cx + blockW + streetWidth >= gridWidth) break;
+    blockStartsX.push(cx);
+    cx += blockW + streetWidth;
+  }
+
+  const blockStartsY: number[] = [0];
+  let cy = streetWidth;
+  while (cy < gridHeight - minBlockSize) {
+    const blockH = minBlockSize + Math.floor(Math.random() * (maxBlockSize - minBlockSize + 1));
+    if (cy + blockH + streetWidth >= gridHeight) break;
+    blockStartsY.push(cy);
+    cy += blockH + streetWidth;
+  }
+
+  // Fill in building blocks
+  for (let bi = 1; bi < blockStartsX.length; bi++) {
+    for (let bj = 1; bj < blockStartsY.length; bj++) {
+      const bx = blockStartsX[bi];
+      const by = blockStartsY[bj];
+      const nextBx = bi + 1 < blockStartsX.length ? blockStartsX[bi + 1] - streetWidth : gridWidth - streetWidth;
+      const nextBy = bj + 1 < blockStartsY.length ? blockStartsY[bj + 1] - streetWidth : gridHeight - streetWidth;
+      const bw = Math.min(nextBx - bx, maxBlockSize);
+      const bh = Math.min(nextBy - by, maxBlockSize);
+
+      if (bw < 3 || bh < 3) continue;
+
+      // Randomly decide what this block is
+      const roll = Math.random();
+      if (roll < 0.1 && bw >= 4 && bh >= 4) {
+        // Plaza / town square
+        for (let py = by; py < by + bh && py < gridHeight; py++) {
+          for (let px = bx; px < bx + bw && px < gridWidth; px++) {
+            tileMap[py][px] = 2; // plaza
+          }
+        }
+        // Maybe add a fountain (water) in center
+        if (bw >= 5 && bh >= 5 && Math.random() < 0.6) {
+          const fcx = bx + Math.floor(bw / 2);
+          const fcy = by + Math.floor(bh / 2);
+          if (fcx < gridWidth && fcy < gridHeight) tileMap[fcy][fcx] = 4; // water
+          if (fcx + 1 < gridWidth && fcy < gridHeight) tileMap[fcy][fcx + 1] = 4;
+          if (fcx < gridWidth && fcy + 1 < gridHeight) tileMap[fcy + 1][fcx] = 4;
+          if (fcx + 1 < gridWidth && fcy + 1 < gridHeight) tileMap[fcy + 1][fcx + 1] = 4;
+        }
+        rooms.push({
+          id: roomId++, x: bx, y: by, width: bw, height: bh,
+          centerX: bx + Math.floor(bw / 2), centerY: by + Math.floor(bh / 2),
+        });
+      } else if (roll < 0.18) {
+        // Park / garden
+        for (let py = by; py < by + bh && py < gridHeight; py++) {
+          for (let px = bx; px < bx + bw && px < gridWidth; px++) {
+            tileMap[py][px] = 3; // grass
+          }
+        }
+        rooms.push({
+          id: roomId++, x: bx, y: by, width: bw, height: bh,
+          centerX: bx + Math.floor(bw / 2), centerY: by + Math.floor(bh / 2),
+        });
+      } else if (roll < 0.28) {
+        // Market area
+        for (let py = by; py < by + bh && py < gridHeight; py++) {
+          for (let px = bx; px < bx + bw && px < gridWidth; px++) {
+            tileMap[py][px] = 5; // market
+          }
+        }
+        rooms.push({
+          id: roomId++, x: bx, y: by, width: bw, height: bh,
+          centerX: bx + Math.floor(bw / 2), centerY: by + Math.floor(bh / 2),
+        });
+      } else {
+        // Building block — subdivide into 1-3 buildings
+        const numBuildings = bw >= 8 && bh >= 8 ? Math.floor(Math.random() * 2) + 2 :
+                             bw >= 6 ? Math.floor(Math.random() * 2) + 1 : 1;
+        
+        if (numBuildings === 1) {
+          // Single building filling the block
+          fillBuilding(tileMap, bx, by, bw, bh, gridWidth, gridHeight, doors);
+          rooms.push({
+            id: roomId++, x: bx, y: by, width: bw, height: bh,
+            centerX: bx + Math.floor(bw / 2), centerY: by + Math.floor(bh / 2),
+          });
+        } else {
+          // Split block horizontally or vertically
+          const splitHorizontal = bw > bh;
+          if (splitHorizontal) {
+            const split = Math.floor(bw * (0.4 + Math.random() * 0.2));
+            fillBuilding(tileMap, bx, by, split - 1, bh, gridWidth, gridHeight, doors);
+            rooms.push({
+              id: roomId++, x: bx, y: by, width: split - 1, height: bh,
+              centerX: bx + Math.floor((split - 1) / 2), centerY: by + Math.floor(bh / 2),
+            });
+            // Gap (alley)
+            fillBuilding(tileMap, bx + split, by, bw - split, bh, gridWidth, gridHeight, doors);
+            rooms.push({
+              id: roomId++, x: bx + split, y: by, width: bw - split, height: bh,
+              centerX: bx + split + Math.floor((bw - split) / 2), centerY: by + Math.floor(bh / 2),
+            });
+          } else {
+            const split = Math.floor(bh * (0.4 + Math.random() * 0.2));
+            fillBuilding(tileMap, bx, by, bw, split - 1, gridWidth, gridHeight, doors);
+            rooms.push({
+              id: roomId++, x: bx, y: by, width: bw, height: split - 1,
+              centerX: bx + Math.floor(bw / 2), centerY: by + Math.floor((split - 1) / 2),
+            });
+            fillBuilding(tileMap, bx, by + split, bw, bh - split, gridWidth, gridHeight, doors);
+            rooms.push({
+              id: roomId++, x: bx, y: by + split, width: bw, height: bh - split,
+              centerX: bx + Math.floor(bw / 2), centerY: by + split + Math.floor((bh - split) / 2),
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Convert to standard tileMap for wall/scene generation:
+  // For Foundry walls, buildings (0) are walls, everything else is passable
+  const wallMap: number[][] = Array.from({ length: gridHeight }, () =>
+    Array(gridWidth).fill(0)
+  );
+  for (let y = 0; y < gridHeight; y++) {
+    for (let x = 0; x < gridWidth; x++) {
+      wallMap[y][x] = tileMap[y][x] === 0 ? 0 : 1; // 0=wall, 1=floor
+    }
+  }
+
+  const foundryScene = buildFoundryScene(wallMap, doors, rooms, gridWidth, gridHeight, gridSize, mapName);
+  foundryScene.tokenVision = false; // Cities are usually open
+  foundryScene.fog.exploration = false;
+  foundryScene.backgroundColor = '#8B9467'; // earthy green for surrounding terrain
+
+  // Render with city colors
+  const imageBuffer = await renderCityImage(tileMap, doors, gridWidth, gridHeight, gridSize);
+
+  return {
+    imageBuffer,
+    fileName: `${Date.now()}-city.png`,
+    foundryScene,
+    rooms,
+    gridWidth,
+    gridHeight,
+    gridSize,
+  };
+}
+
+/** Helper: fill a rectangular area as a building (walls with optional interior) */
+function fillBuilding(
+  tileMap: number[][],
+  bx: number, by: number, bw: number, bh: number,
+  gridWidth: number, gridHeight: number,
+  doors: DoorData[]
+) {
+  if (bw < 2 || bh < 2) return;
+
+  for (let py = by; py < by + bh && py < gridHeight; py++) {
+    for (let px = bx; px < bx + bw && px < gridWidth; px++) {
+      // Walls on the edges, floor inside
+      const isEdge = px === bx || px === bx + bw - 1 || py === by || py === by + bh - 1;
+      tileMap[py][px] = isEdge ? 0 : 1; // 0=building wall, 1=interior/street
+    }
+  }
+
+  // Add a door on a random side facing a street
+  const side = Math.floor(Math.random() * 4);
+  let dx: number, dy: number;
+  switch (side) {
+    case 0: // top
+      dx = bx + 1 + Math.floor(Math.random() * Math.max(1, bw - 2));
+      dy = by;
+      break;
+    case 1: // bottom
+      dx = bx + 1 + Math.floor(Math.random() * Math.max(1, bw - 2));
+      dy = by + bh - 1;
+      break;
+    case 2: // left
+      dx = bx;
+      dy = by + 1 + Math.floor(Math.random() * Math.max(1, bh - 2));
+      break;
+    default: // right
+      dx = bx + bw - 1;
+      dy = by + 1 + Math.floor(Math.random() * Math.max(1, bh - 2));
+      break;
+  }
+  if (dx >= 0 && dx < gridWidth && dy >= 0 && dy < gridHeight) {
+    tileMap[dy][dx] = 1; // Open the door tile
+    doors.push({ x: dx, y: dy });
+  }
+}
+
+/** Render city map with distinct colors for streets, buildings, plazas, etc. */
+async function renderCityImage(
+  tileMap: number[][],
+  doors: DoorData[],
+  gridWidth: number,
+  gridHeight: number,
+  gridSize: number
+): Promise<Buffer> {
+  const pixelWidth = gridWidth * gridSize;
+  const pixelHeight = gridHeight * gridSize;
+  const channels = 4;
+  const data = Buffer.alloc(pixelWidth * pixelHeight * channels);
+  const doorSet = new Set(doors.map(d => `${d.x},${d.y}`));
+
+  for (let gy = 0; gy < gridHeight; gy++) {
+    for (let gx = 0; gx < gridWidth; gx++) {
+      const tile = tileMap[gy][gx];
+      const isDoor = doorSet.has(`${gx},${gy}`);
+
+      let color: { r: number; g: number; b: number };
+      if (isDoor) {
+        color = CITY_COLORS.door;
+      } else {
+        switch (tile) {
+          case 0: color = CITY_COLORS.building; break;     // building wall
+          case 2: color = CITY_COLORS.plaza; break;        // plaza
+          case 3: color = CITY_COLORS.grass; break;        // park/garden
+          case 4: color = CITY_COLORS.water; break;        // fountain/pond
+          case 5: color = CITY_COLORS.market; break;       // market
+          default: color = CITY_COLORS.street; break;      // street (1)
+        }
+      }
+
+      const noise = Math.floor(Math.random() * 10) - 5;
+      const isFloor = tile !== 0;
+
+      for (let py = 0; py < gridSize; py++) {
+        for (let px = 0; px < gridSize; px++) {
+          const pixelX = gx * gridSize + px;
+          const pixelY = gy * gridSize + py;
+          const idx = (pixelY * pixelWidth + pixelX) * channels;
+
+          const isGridLine = isFloor && (px === gridSize - 1 || py === gridSize - 1);
+
+          // Add cobblestone pattern for streets
+          let extraNoise = 0;
+          if (tile === 1 && !isDoor) {
+            // Cobblestone pattern: every ~8 pixels, slight color variation
+            extraNoise = ((px + py) % 8 < 1) ? -15 : ((px * 3 + py * 7) % 13 < 1 ? 8 : 0);
+          }
+
+          if (isGridLine) {
+            data[idx + 0] = CITY_COLORS.grid.r;
+            data[idx + 1] = CITY_COLORS.grid.g;
+            data[idx + 2] = CITY_COLORS.grid.b;
+            data[idx + 3] = 255;
+          } else {
+            data[idx + 0] = Math.max(0, Math.min(255, color.r + noise + extraNoise));
+            data[idx + 1] = Math.max(0, Math.min(255, color.g + noise + extraNoise));
+            data[idx + 2] = Math.max(0, Math.min(255, color.b + noise + extraNoise));
+            data[idx + 3] = 255;
+          }
+        }
+      }
+    }
+  }
+
+  return sharp(data, { raw: { width: pixelWidth, height: pixelHeight, channels: channels as 4 } })
+    .png({ compressionLevel: 6 })
+    .toBuffer();
+}
+
+// ============================================================
+// Building Interior Map Generator
+// ============================================================
+
+/**
+ * Generates a building interior map (tavern, shop, house, etc.)
+ * Uses larger, more structured rooms with furniture-like features.
+ */
+export async function generateBuildingMap(
+  gridWidth: number = 30,
+  gridHeight: number = 25,
+  gridSize: number = 100,
+  mapName: string = 'Generated Building'
+): Promise<GeneratedMap> {
+  const tileMap: number[][] = Array.from({ length: gridHeight }, () =>
+    Array(gridWidth).fill(0) // 0 = wall
+  );
+
+  const rooms: RoomData[] = [];
+  const doors: DoorData[] = [];
+  let roomId = 0;
+
+  // Building outer walls - leave 2-cell border for exterior
+  const margin = 2;
+  const buildW = gridWidth - margin * 2;
+  const buildH = gridHeight - margin * 2;
+
+  // Fill exterior with "outside" (make it passable street)
+  for (let y = 0; y < gridHeight; y++) {
+    for (let x = 0; x < gridWidth; x++) {
+      // Outside area
+      if (x < margin || x >= gridWidth - margin || y < margin || y >= gridHeight - margin) {
+        tileMap[y][x] = 2; // 2 = exterior/street
+      }
+    }
+  }
+
+  // Create the building shell
+  for (let y = margin; y < margin + buildH; y++) {
+    for (let x = margin; x < margin + buildW; x++) {
+      const isOuterWall = x === margin || x === margin + buildW - 1 ||
+                          y === margin || y === margin + buildH - 1;
+      tileMap[y][x] = isOuterWall ? 0 : 1; // 0=wall, 1=floor
+    }
+  }
+
+  // Subdivide into rooms using BSP (Binary Space Partitioning)
+  interface BSPNode {
+    x: number; y: number; w: number; h: number;
+    children?: [BSPNode, BSPNode];
+  }
+
+  function splitBSP(node: BSPNode, depth: number): void {
+    if (depth <= 0 || node.w < 6 || node.h < 6) return;
+
+    const canSplitH = node.w >= 8;
+    const canSplitV = node.h >= 8;
+    if (!canSplitH && !canSplitV) return;
+
+    let splitHorizontal: boolean;
+    if (!canSplitH) splitHorizontal = false;
+    else if (!canSplitV) splitHorizontal = true;
+    else splitHorizontal = Math.random() < 0.5;
+
+    if (splitHorizontal) {
+      const splitAt = node.x + 3 + Math.floor(Math.random() * (node.w - 6));
+      const left: BSPNode = { x: node.x, y: node.y, w: splitAt - node.x, h: node.h };
+      const right: BSPNode = { x: splitAt, y: node.y, w: node.x + node.w - splitAt, h: node.h };
+      node.children = [left, right];
+
+      // Draw dividing wall
+      for (let y = node.y; y < node.y + node.h; y++) {
+        if (y >= 0 && y < gridHeight && splitAt >= 0 && splitAt < gridWidth) {
+          tileMap[y][splitAt] = 0;
+        }
+      }
+
+      // Add door in the dividing wall
+      const doorY = node.y + 1 + Math.floor(Math.random() * Math.max(1, node.h - 2));
+      if (doorY >= 0 && doorY < gridHeight && splitAt >= 0 && splitAt < gridWidth) {
+        tileMap[doorY][splitAt] = 1;
+        doors.push({ x: splitAt, y: doorY });
+      }
+
+      splitBSP(left, depth - 1);
+      splitBSP(right, depth - 1);
+    } else {
+      const splitAt = node.y + 3 + Math.floor(Math.random() * (node.h - 6));
+      const top: BSPNode = { x: node.x, y: node.y, w: node.w, h: splitAt - node.y };
+      const bottom: BSPNode = { x: node.x, y: splitAt, w: node.w, h: node.y + node.h - splitAt };
+      node.children = [top, bottom];
+
+      // Draw dividing wall
+      for (let x = node.x; x < node.x + node.w; x++) {
+        if (x >= 0 && x < gridWidth && splitAt >= 0 && splitAt < gridHeight) {
+          tileMap[splitAt][x] = 0;
+        }
+      }
+
+      // Add door
+      const doorX = node.x + 1 + Math.floor(Math.random() * Math.max(1, node.w - 2));
+      if (doorX >= 0 && doorX < gridWidth && splitAt >= 0 && splitAt < gridHeight) {
+        tileMap[splitAt][doorX] = 1;
+        doors.push({ x: doorX, y: splitAt });
+      }
+
+      splitBSP(top, depth - 1);
+      splitBSP(bottom, depth - 1);
+    }
+  }
+
+  function collectLeaves(node: BSPNode): BSPNode[] {
+    if (!node.children) return [node];
+    return [...collectLeaves(node.children[0]), ...collectLeaves(node.children[1])];
+  }
+
+  const root: BSPNode = { x: margin + 1, y: margin + 1, w: buildW - 2, h: buildH - 2 };
+  const bspDepth = buildW >= 20 && buildH >= 16 ? 3 : 2;
+  splitBSP(root, bspDepth);
+
+  // Collect leaf rooms
+  const leaves = collectLeaves(root);
+  for (const leaf of leaves) {
+    rooms.push({
+      id: roomId++,
+      x: leaf.x, y: leaf.y,
+      width: leaf.w, height: leaf.h,
+      centerX: leaf.x + Math.floor(leaf.w / 2),
+      centerY: leaf.y + Math.floor(leaf.h / 2),
+    });
+
+    // Add furniture markers (tile value 3 = furniture, 4 = hearth/rug)
+    // Fireplace in one room
+    if (roomId === 1 && leaf.w >= 4 && leaf.h >= 4) {
+      const hx = leaf.x + Math.floor(leaf.w / 2);
+      const hy = leaf.y; // Against north wall (which is already a wall cell above)
+      if (hy + 1 < gridHeight && hx < gridWidth && tileMap[hy][hx] === 1) {
+        tileMap[hy][hx] = 4; // hearth
+      }
+    }
+
+    // Tables/furniture in larger rooms
+    if (leaf.w >= 5 && leaf.h >= 5 && Math.random() < 0.7) {
+      const fx = leaf.x + Math.floor(leaf.w / 2);
+      const fy = leaf.y + Math.floor(leaf.h / 2);
+      if (fx < gridWidth && fy < gridHeight && tileMap[fy][fx] === 1) {
+        tileMap[fy][fx] = 3; // furniture
+        if (fx + 1 < gridWidth && tileMap[fy][fx + 1] === 1) tileMap[fy][fx + 1] = 3;
+      }
+    }
+  }
+
+  // Add main entrance door on south wall
+  const entranceX = margin + Math.floor(buildW / 2);
+  const entranceY = margin + buildH - 1;
+  if (entranceX < gridWidth && entranceY < gridHeight) {
+    tileMap[entranceY][entranceX] = 1;
+    doors.push({ x: entranceX, y: entranceY });
+  }
+
+  // Build wall map (0 and any outer building wall = wall, rest = floor)
+  const wallMap: number[][] = Array.from({ length: gridHeight }, () =>
+    Array(gridWidth).fill(0)
+  );
+  for (let y = 0; y < gridHeight; y++) {
+    for (let x = 0; x < gridWidth; x++) {
+      wallMap[y][x] = tileMap[y][x] === 0 ? 0 : 1;
+    }
+  }
+
+  const foundryScene = buildFoundryScene(wallMap, doors, rooms, gridWidth, gridHeight, gridSize, mapName);
+  const imageBuffer = await renderBuildingImage(tileMap, doors, gridWidth, gridHeight, gridSize);
+
+  return {
+    imageBuffer,
+    fileName: `${Date.now()}-building.png`,
+    foundryScene,
+    rooms,
+    gridWidth,
+    gridHeight,
+    gridSize,
+  };
+}
+
+/** Render building interior with wood floors, furniture colors, etc. */
+async function renderBuildingImage(
+  tileMap: number[][],
+  doors: DoorData[],
+  gridWidth: number,
+  gridHeight: number,
+  gridSize: number
+): Promise<Buffer> {
+  const pixelWidth = gridWidth * gridSize;
+  const pixelHeight = gridHeight * gridSize;
+  const channels = 4;
+  const data = Buffer.alloc(pixelWidth * pixelHeight * channels);
+  const doorSet = new Set(doors.map(d => `${d.x},${d.y}`));
+
+  for (let gy = 0; gy < gridHeight; gy++) {
+    for (let gx = 0; gx < gridWidth; gx++) {
+      const tile = tileMap[gy][gx];
+      const isDoor = doorSet.has(`${gx},${gy}`);
+
+      let color: { r: number; g: number; b: number };
+      if (isDoor) {
+        color = BUILDING_COLORS.door;
+      } else {
+        switch (tile) {
+          case 0: color = BUILDING_COLORS.wall; break;
+          case 2: color = CITY_COLORS.street; break;         // exterior
+          case 3: color = BUILDING_COLORS.furniture; break;   // furniture
+          case 4: color = BUILDING_COLORS.hearth; break;      // fireplace
+          default: color = BUILDING_COLORS.floor; break;      // floor (1)
+        }
+      }
+
+      const noise = Math.floor(Math.random() * 8) - 4;
+      const isFloor = tile !== 0;
+
+      for (let py = 0; py < gridSize; py++) {
+        for (let px = 0; px < gridSize; px++) {
+          const pixelX = gx * gridSize + px;
+          const pixelY = gy * gridSize + py;
+          const idx = (pixelY * pixelWidth + pixelX) * channels;
+
+          const isGridLine = isFloor && (px === gridSize - 1 || py === gridSize - 1);
+
+          // Wood plank pattern for floors
+          let plankNoise = 0;
+          if (tile === 1) {
+            // Horizontal plank lines
+            plankNoise = (py % 12 < 1) ? -20 : 0;
+            // Subtle stagger for plank seams
+            if (px % 20 < 1 && (Math.floor(py / 12) + gx) % 2 === 0) plankNoise = -15;
+          }
+
+          if (isGridLine) {
+            data[idx + 0] = BUILDING_COLORS.grid.r;
+            data[idx + 1] = BUILDING_COLORS.grid.g;
+            data[idx + 2] = BUILDING_COLORS.grid.b;
+            data[idx + 3] = 255;
+          } else {
+            data[idx + 0] = Math.max(0, Math.min(255, color.r + noise + plankNoise));
+            data[idx + 1] = Math.max(0, Math.min(255, color.g + noise + plankNoise));
+            data[idx + 2] = Math.max(0, Math.min(255, color.b + noise + plankNoise));
+            data[idx + 3] = 255;
+          }
+        }
+      }
+    }
+  }
+
+  return sharp(data, { raw: { width: pixelWidth, height: pixelHeight, channels: channels as 4 } })
+    .png({ compressionLevel: 6 })
+    .toBuffer();
 }
 
 // ============================================================
