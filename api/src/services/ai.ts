@@ -188,3 +188,183 @@ Write a narrative summary that captures the important moments and decisions. Thi
 
   return response.choices[0].message.content || 'Session summary unavailable.';
 }
+
+export interface GeneratedBackground {
+  characterName: string;
+  race: string;
+  class: string;
+  background: string;
+  backstory: string;
+  personalityTraits: string[];
+  ideals: string;
+  bonds: string[];
+  flaws: string;
+  hooks: string[];
+  reasonsForAdventure: string;
+}
+
+export async function generatePlayerBackgrounds(
+  campaignContext: string,
+  playerCount: number
+): Promise<GeneratedBackground[]> {
+  const prompt = `You are a creative Dungeon Master. Generate ${playerCount} interconnected player character backgrounds for a D&D campaign.
+
+Campaign Context: ${campaignContext}
+
+For each character, include:
+- characterName: A fitting fantasy name
+- race: D&D 5e race
+- class: Suggested D&D 5e class
+- background: D&D 5e background (e.g., Acolyte, Criminal, Noble)
+- backstory: A paragraph of backstory
+- personalityTraits: Array of 2 personality traits
+- ideals: One ideal they pursue
+- bonds: Array of 1-2 bonds to other party members or the world
+- flaws: One character flaw
+- hooks: Array of 2-3 story hooks involving this character
+- reasonsForAdventure: Why this character is adventuring
+
+Make the backgrounds interconnected where possible to create party chemistry.
+
+Respond with a JSON object containing a "backgrounds" array. Respond ONLY with valid JSON.`;
+
+  const response = await openai.chat.completions.create({
+    model: getModel(),
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' },
+  });
+
+  const content = response.choices[0].message.content;
+  if (!content) throw new Error('No response from AI');
+
+  const parsed = JSON.parse(content);
+  return parsed.backgrounds || parsed.characters || [parsed];
+}
+
+export interface GeneratedMapDescription {
+  name: string;
+  description: string;
+  type: string;
+  dimensions: { width: number; height: number };
+  gridSize: number;
+  rooms: Array<{
+    name: string;
+    description: string;
+    features: string[];
+    connections: string[];
+  }>;
+  pointsOfInterest: Array<{
+    name: string;
+    description: string;
+    type: string;
+  }>;
+  encounters: Array<{
+    location: string;
+    description: string;
+    difficulty: string;
+  }>;
+  atmosphere: string;
+  hazards: string[];
+}
+
+export async function generateMapDescription(
+  campaignContext: string,
+  locationDescription: string,
+  mapType: string
+): Promise<GeneratedMapDescription> {
+  const prompt = `You are a creative Dungeon Master and cartographer. Generate a detailed map description for a D&D campaign.
+
+Campaign Context: ${campaignContext}
+
+Location Description: ${locationDescription}
+Map Type: ${mapType}
+
+Create a detailed map layout. Respond with a JSON object containing:
+- name: Name of this location
+- description: Overall description of the location (2-3 paragraphs)
+- type: The map type (dungeon/tavern/wilderness/town/castle/cave/other)
+- dimensions: Object with width and height in grid squares (reasonable size, e.g. 30x30 for a dungeon)
+- gridSize: Grid square size in pixels (default 50)
+- rooms: Array of 4-8 rooms/areas, each with name, description, features array, and connections array (which rooms connect to it)
+- pointsOfInterest: Array of 3-5 notable features, each with name, description, and type (trap/treasure/secret/npc/environmental)
+- encounters: Array of 2-3 possible encounters at specific locations, each with location, description, difficulty
+- atmosphere: A paragraph describing the mood, sounds, smells of this place
+- hazards: Array of environmental hazards or dangers
+
+Respond ONLY with valid JSON.`;
+
+  const response = await openai.chat.completions.create({
+    model: getModel(),
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' },
+  });
+
+  const content = response.choices[0].message.content;
+  if (!content) throw new Error('No response from AI');
+
+  return JSON.parse(content);
+}
+
+export interface GeneratedEncounter {
+  name: string;
+  description: string;
+  difficulty: string;
+  challengeRating: string;
+  enemies: Array<{
+    name: string;
+    count: number;
+    cr: string;
+    hitPoints: number;
+    armorClass: number;
+    abilities: string[];
+    tactics: string;
+  }>;
+  terrain: string;
+  objectives: string[];
+  rewards: string[];
+  tacticalNotes: string;
+  alternativeResolutions: string[];
+}
+
+export async function generateDetailedEncounters(
+  campaignContext: string,
+  partyLevel: number,
+  partySize: number,
+  encounterType: string
+): Promise<GeneratedEncounter[]> {
+  const prompt = `You are an expert D&D 5e encounter designer. Create 3 detailed combat encounters.
+
+Campaign Context: ${campaignContext}
+
+Party Level: ${partyLevel}
+Party Size: ${partySize}
+Encounter Theme: ${encounterType}
+
+For each encounter, provide:
+- name: Encounter name
+- description: 1-2 paragraph scene description
+- difficulty: easy/medium/hard/deadly
+- challengeRating: Overall CR for the encounter
+- enemies: Array of enemies, each with name, count, cr (challenge rating), hitPoints, armorClass, abilities array, and tactics
+- terrain: Description of the battlefield
+- objectives: Array of combat objectives
+- rewards: Array of loot/XP rewards
+- tacticalNotes: DM tips for running this encounter
+- alternativeResolutions: Array of non-combat solutions
+
+Balance encounters for a party of ${partySize} level ${partyLevel} characters.
+
+Respond with a JSON object containing an "encounters" array. Respond ONLY with valid JSON.`;
+
+  const response = await openai.chat.completions.create({
+    model: getModel(),
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' },
+  });
+
+  const content = response.choices[0].message.content;
+  if (!content) throw new Error('No response from AI');
+
+  const parsed = JSON.parse(content);
+  return parsed.encounters || [parsed];
+}

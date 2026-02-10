@@ -85,3 +85,53 @@ export interface NPC {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface MapData {
+  id: string;
+  campaignId: string;
+  sessionId?: string;
+  name: string;
+  description?: string;
+  type: string;
+  gridSize: number;
+  dimensions?: { width: number; height: number };
+  imageUrl?: string;
+  foundrySceneId?: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  details?: {
+    rooms?: Array<{
+      name: string;
+      description: string;
+      features: unknown[];
+      connections: unknown[];
+    }>;
+    pointsOfInterest?: Array<{
+      name: string;
+      description: string;
+      type: string;
+    }>;
+    encounters?: Array<{
+      location: string;
+      description: string;
+      difficulty: string;
+    }>;
+    atmosphere?: unknown;
+    hazards?: unknown[];
+  };
+}
+
+export interface PlayerBackground {
+  characterName: string;
+  race: string;
+  class: string;
+  background: string;
+  backstory: string;
+  personalityTraits: string[];
+  ideals: string;
+  bonds: string[];
+  flaws: string;
+  hooks: string[];
+  reasonsForAdventure: string;
+}

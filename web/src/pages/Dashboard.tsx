@@ -3,11 +3,13 @@ import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import type { Campaign } from '../types';
+import { ErrorAlert, LoadingSkeleton } from '../components/LoadingSpinner';
 
 export function Dashboard() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [error, setError] = useState<string>('');
   const { user, logout } = useAuth();
 
   useEffect(() => {
@@ -31,8 +33,10 @@ export function Dashboard() {
     try {
       await api.deleteCampaign(id);
       setCampaigns(campaigns.filter((c) => c.id !== id));
-    } catch (error) {
-      console.error('Failed to delete campaign:', error);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to delete campaign';
+      setError(errorMsg);
+      console.error('Failed to delete campaign:', err);
     }
   };
 
@@ -54,6 +58,9 @@ export function Dashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {error && (
+          <ErrorAlert error={error} onDismiss={() => setError('')} />
+        )}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold">Your Campaigns</h2>
           <button
@@ -65,7 +72,7 @@ export function Dashboard() {
         </div>
 
         {loading ? (
-          <div className="text-center py-12 text-gray-400">Loading...</div>
+          <LoadingSkeleton />
         ) : campaigns.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-400 mb-4">No campaigns yet</p>

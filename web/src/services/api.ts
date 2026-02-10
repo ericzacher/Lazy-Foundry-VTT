@@ -1,4 +1,4 @@
-import type { AuthResponse, Campaign, Session, User, NPC } from '../types';
+import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -181,6 +181,52 @@ class ApiService {
 
   async getCampaignNPCs(campaignId: string): Promise<NPC[]> {
     return this.request(`/api/generate/campaigns/${campaignId}/npcs`);
+  }
+
+  // Session Results
+  async getSessionResults(sessionId: string): Promise<SessionResult> {
+    return this.request(`/api/sessions/${sessionId}/results`);
+  }
+
+  // Player Backgrounds
+  async generatePlayerBackgrounds(
+    campaignId: string,
+    playerCount?: number
+  ): Promise<{ backgrounds: unknown[] }> {
+    return this.request(`/api/generate/campaigns/${campaignId}/backgrounds`, {
+      method: 'POST',
+      body: JSON.stringify({ playerCount }),
+    });
+  }
+
+  // Maps
+  async generateMap(
+    campaignId: string,
+    description: string,
+    mapType?: string,
+    sessionId?: string
+  ): Promise<{ map: MapData }> {
+    return this.request(`/api/generate/campaigns/${campaignId}/maps`, {
+      method: 'POST',
+      body: JSON.stringify({ description, mapType, sessionId }),
+    });
+  }
+
+  async getCampaignMaps(campaignId: string): Promise<MapData[]> {
+    return this.request(`/api/generate/campaigns/${campaignId}/maps`);
+  }
+
+  // Encounters
+  async generateEncounters(
+    campaignId: string,
+    partyLevel?: number,
+    partySize?: number,
+    encounterType?: string
+  ): Promise<{ encounters: unknown[] }> {
+    return this.request(`/api/generate/campaigns/${campaignId}/encounters`, {
+      method: 'POST',
+      body: JSON.stringify({ partyLevel, partySize, encounterType }),
+    });
   }
 }
 

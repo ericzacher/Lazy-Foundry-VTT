@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import type { Session } from '../types';
+import type { Session, SessionResult } from '../types';
 import { SessionStatus } from '../types';
+import { LoadingSpinner, LoadingSkeleton, ErrorAlert } from '../components/LoadingSpinner';
 
 interface Scenario {
   title?: string;
@@ -25,24 +26,35 @@ export function SessionDetail() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [generatingScenario, setGeneratingScenario] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'scenario' | 'results'>('scenario');
+  const [showFinalizeForm, setShowFinalizeForm] = useState(false);
+  const [sessionResult, setSessionResult] = useState<SessionResult | null>(null);
 
-  useEffect(() => {
-    if (id) {
-      loadSession();
-    }
-  }, [id]);
-
-  const loadSession = async () => {
+  const loadSession = useCallback(async () => {
     try {
       const data = await api.getSession(id!);
       setSession(data);
+      // Try to load existing results
+      try {
+        const results = await api.getSessionResults(id!);
+        setSessionResult(results);
+      } catch {
+        // No results yet - that's fine
+      }
     } catch (error) {
       console.error('Failed to load session:', error);
       navigate('/');
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, navigate]);
+
+  useEffect(() => {
+    if (id) {
+      loadSession();
+    }
+  }, [id, loadSession]);
 
   const updateStatus = async (status: SessionStatus) => {
     if (!session) return;
@@ -60,12 +72,14 @@ export function SessionDetail() {
   const handleGenerateScenario = async () => {
     if (!session) return;
     setGeneratingScenario(true);
+    setError('');
     try {
       const { session: updatedSession } = await api.generateScenario(session.id);
       setSession(updatedSession);
-    } catch (error) {
-      console.error('Failed to generate scenario:', error);
-      alert('Failed to generate scenario. Please try again.');
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to generate scenario. Make sure your Groq API key is set.';
+      setError(errorMsg);
+      console.error('Failed to generate scenario:', err);
     } finally {
       setGeneratingScenario(false);
     }
@@ -102,7 +116,7 @@ export function SessionDetail() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-400">Loading...</div>
+        <LoadingSpinner />
       </div>
     );
   }
@@ -131,6 +145,9 @@ export function SessionDetail() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {error && (
+          <ErrorAlert error={error} onDismiss={() => setError('')} />
+        )}
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-6">
           <div className="flex justify-between items-start mb-4">
             <div>
@@ -215,6 +232,32 @@ export function SessionDetail() {
           </div>
         </div>
 
+        {/* Tabs */}
+        <div className="flex gap-4 border-b border-gray-700 mb-6">
+          <button
+            onClick={() => setActiveTab('scenario')}
+            className={`pb-3 px-1 border-b-2 ${
+              activeTab === 'scenario'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-gray-400 hover:text-white'
+            }`}
+          >
+            Scenario
+          </button>
+          <button
+            onClick={() => setActiveTab('results')}
+            className={`pb-3 px-1 border-b-2 ${
+              activeTab === 'results'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-gray-400 hover:text-white'
+            }`}
+          >
+            Session Results {sessionResult ? '✓' : ''}
+          </button>
+        </div>
+
+        {activeTab === 'scenario' && (
+          <>
         {/* Scenario Section */}
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-6">
           <div className="flex justify-between items-center mb-4">
@@ -350,7 +393,384 @@ export function SessionDetail() {
             </div>
           </div>
         </div>
+          </>
+        )}
+
+        {activeTab === 'results' && (
+          <div className="space-y-6">
+            {/* Existing Results Display */}
+            {sessionResult && !showFinalizeForm && (
+              <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold">Session Results</h2>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowFinalizeForm(true)}
+                      className="text-sm text-blue-400 hover:text-blue-300"
+                    >
+                      Edit Results
+                    </button>
+                    <span className="text-xs text-gray-500">
+                      Captured: {new Date(sessionResult.capturedAt).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {sessionResult.summary && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-400 mb-1">Summary</h3>
+                      <p className="text-gray-300 whitespace-pre-line">{sessionResult.summary}</p>
+                    </div>
+                  )}
+
+                  {sessionResult.events && sessionResult.events.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-400 mb-1">Key Events</h3>
+                      <ul className="space-y-1">
+                        {sessionResult.events.map((event, i) => (
+                          <li key={i} className="text-gray-300 flex gap-2">
+                            <span className="text-blue-400">•</span>
+                            {event}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {sessionResult.playerDecisions && sessionResult.playerDecisions.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-400 mb-1">Player Decisions</h3>
+                      <ul className="space-y-1">
+                        {sessionResult.playerDecisions.map((decision, i) => (
+                          <li key={i} className="text-gray-300 flex gap-2">
+                            <span className="text-green-400">→</span>
+                            {decision}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {sessionResult.npcInteractions && Object.keys(sessionResult.npcInteractions).length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-400 mb-1">NPC Interactions</h3>
+                      <div className="space-y-2">
+                        {Object.entries(sessionResult.npcInteractions).map(([npc, interaction], i) => (
+                          <div key={i} className="bg-gray-700/50 rounded p-3">
+                            <span className="text-purple-400 font-medium">{npc}:</span>{' '}
+                            <span className="text-gray-300">{String(interaction)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {sessionResult.worldChanges && Object.keys(sessionResult.worldChanges).length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-400 mb-1">World Changes</h3>
+                      <div className="space-y-2">
+                        {Object.entries(sessionResult.worldChanges).map(([area, change], i) => (
+                          <div key={i} className="bg-gray-700/50 rounded p-3">
+                            <span className="text-yellow-400 font-medium">{area}:</span>{' '}
+                            <span className="text-gray-300">{String(change)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {sessionResult.unfinishedThreads && sessionResult.unfinishedThreads.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-400 mb-1">Unfinished Threads</h3>
+                      <ul className="space-y-1">
+                        {sessionResult.unfinishedThreads.map((thread, i) => (
+                          <li key={i} className="text-gray-300 flex gap-2">
+                            <span className="text-orange-400">⟳</span>
+                            {thread}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Finalize Form */}
+            {(!sessionResult || showFinalizeForm) && (
+              <FinalizeSessionForm
+                sessionId={session.id}
+                existing={sessionResult}
+                onFinalized={(result) => {
+                  setSessionResult(result);
+                  setShowFinalizeForm(false);
+                  // Reload session to get updated status
+                  loadSession();
+                }}
+                onCancel={sessionResult ? () => setShowFinalizeForm(false) : undefined}
+              />
+            )}
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+/* --- FinalizeSessionForm Component --- */
+
+interface FinalizeFormProps {
+  sessionId: string;
+  existing: SessionResult | null;
+  onFinalized: (result: SessionResult) => void;
+  onCancel?: () => void;
+}
+
+function FinalizeSessionForm({ sessionId, existing, onFinalized, onCancel }: FinalizeFormProps) {
+  const [summary, setSummary] = useState(existing?.summary || '');
+  const [events, setEvents] = useState<string[]>(existing?.events || ['']);
+  const [playerDecisions, setPlayerDecisions] = useState<string[]>(existing?.playerDecisions || ['']);
+  const [npcInteractionsText, setNpcInteractionsText] = useState(
+    existing?.npcInteractions ? JSON.stringify(existing.npcInteractions, null, 2) : '{\n  \n}'
+  );
+  const [worldChangesText, setWorldChangesText] = useState(
+    existing?.worldChanges ? JSON.stringify(existing.worldChanges, null, 2) : '{\n  \n}'
+  );
+  const [unfinishedThreads, setUnfinishedThreads] = useState<string[]>(existing?.unfinishedThreads || ['']);
+  const [submitting, setSubmitting] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
+  const [error, setError] = useState('');
+
+  const addListItem = (setter: React.Dispatch<React.SetStateAction<string[]>>) => {
+    setter(prev => [...prev, '']);
+  };
+
+  const updateListItem = (
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    index: number,
+    value: string
+  ) => {
+    setter(prev => prev.map((item, i) => (i === index ? value : item)));
+  };
+
+  const removeListItem = (
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    index: number
+  ) => {
+    setter(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAISummarize = async () => {
+    const filteredEvents = events.filter(e => e.trim());
+    const filteredDecisions = playerDecisions.filter(d => d.trim());
+
+    if (filteredEvents.length === 0) {
+      setError('Add at least one event before generating an AI summary.');
+      return;
+    }
+
+    setSummarizing(true);
+    setError('');
+    try {
+      const { summary: aiSummary } = await api.summarizeSession(
+        sessionId,
+        filteredEvents,
+        filteredDecisions
+      );
+      setSummary(aiSummary);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate AI summary');
+    } finally {
+      setSummarizing(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setError('');
+
+    let npcInteractions: Record<string, unknown> = {};
+    let worldChanges: Record<string, unknown> = {};
+
+    try {
+      npcInteractions = JSON.parse(npcInteractionsText);
+    } catch {
+      setError('NPC Interactions must be valid JSON');
+      setSubmitting(false);
+      return;
+    }
+
+    try {
+      worldChanges = JSON.parse(worldChangesText);
+    } catch {
+      setError('World Changes must be valid JSON');
+      setSubmitting(false);
+      return;
+    }
+
+    try {
+      const response = await api.finalizeSession(sessionId, {
+        summary: summary.trim() || undefined,
+        events: events.filter(e => e.trim()),
+        playerDecisions: playerDecisions.filter(d => d.trim()),
+        npcInteractions,
+        worldChanges,
+        unfinishedThreads: unfinishedThreads.filter(t => t.trim()),
+      });
+
+      const result = (response as { result: SessionResult }).result;
+      onFinalized(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to finalize session');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const renderDynamicList = (
+    label: string,
+    items: string[],
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    placeholder: string
+  ) => (
+    <div>
+      <div className="flex justify-between items-center mb-2">
+        <label className="text-sm font-medium text-gray-400">{label}</label>
+        <button
+          type="button"
+          onClick={() => addListItem(setter)}
+          className="text-xs text-blue-400 hover:text-blue-300"
+        >
+          + Add
+        </button>
+      </div>
+      <div className="space-y-2">
+        {items.map((item, i) => (
+          <div key={i} className="flex gap-2">
+            <input
+              type="text"
+              value={item}
+              onChange={e => updateListItem(setter, i, e.target.value)}
+              placeholder={placeholder}
+              className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+            />
+            {items.length > 1 && (
+              <button
+                type="button"
+                onClick={() => removeListItem(setter, i)}
+                className="text-red-400 hover:text-red-300 px-2"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-lg font-semibold">
+          {existing ? 'Edit Session Results' : 'Finalize Session'}
+        </h2>
+        {onCancel && (
+          <button
+            onClick={onCancel}
+            className="text-gray-400 hover:text-white text-sm"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="bg-red-500/20 text-red-400 p-3 rounded mb-4 text-sm">
+          {error}
+        </div>
+      )}
+
+      <div className="space-y-6">
+        {/* Summary */}
+        <div>
+          <div className="flex justify-between items-center mb-2">
+            <label className="text-sm font-medium text-gray-400">Summary</label>
+            <button
+              type="button"
+              onClick={handleAISummarize}
+              disabled={summarizing}
+              className="text-xs text-purple-400 hover:text-purple-300 disabled:opacity-50"
+            >
+              {summarizing ? 'Generating...' : '✨ AI Summarize'}
+            </button>
+          </div>
+          <textarea
+            value={summary}
+            onChange={e => setSummary(e.target.value)}
+            placeholder="Write or generate a summary of what happened this session..."
+            rows={4}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+          />
+        </div>
+
+        {/* Events */}
+        {renderDynamicList('Key Events', events, setEvents, 'e.g., Party defeated the goblin ambush')}
+
+        {/* Player Decisions */}
+        {renderDynamicList('Player Decisions', playerDecisions, setPlayerDecisions, 'e.g., Spared the goblin leader')}
+
+        {/* NPC Interactions */}
+        <div>
+          <label className="text-sm font-medium text-gray-400 mb-2 block">
+            NPC Interactions (JSON)
+          </label>
+          <textarea
+            value={npcInteractionsText}
+            onChange={e => setNpcInteractionsText(e.target.value)}
+            placeholder='{"NPC Name": "Description of interaction"}'
+            rows={4}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm font-mono"
+          />
+        </div>
+
+        {/* World Changes */}
+        <div>
+          <label className="text-sm font-medium text-gray-400 mb-2 block">
+            World Changes (JSON)
+          </label>
+          <textarea
+            value={worldChangesText}
+            onChange={e => setWorldChangesText(e.target.value)}
+            placeholder='{"Location/Faction": "What changed"}'
+            rows={4}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm font-mono"
+          />
+        </div>
+
+        {/* Unfinished Threads */}
+        {renderDynamicList('Unfinished Threads', unfinishedThreads, setUnfinishedThreads, 'e.g., The mysterious letter remains unopened')}
+
+        {/* Submit */}
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="px-6 py-2 bg-green-600 hover:bg-green-700 rounded font-medium disabled:opacity-50"
+          >
+            {submitting ? 'Saving...' : existing ? 'Update Results' : 'Finalize Session'}
+          </button>
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              className="px-6 py-2 border border-gray-600 hover:border-gray-500 rounded"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

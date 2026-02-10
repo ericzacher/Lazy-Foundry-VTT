@@ -4,12 +4,16 @@ import { AppDataSource } from '../config/database';
 import { Campaign } from '../entities/Campaign';
 import { Session } from '../entities/Session';
 import { NPC } from '../entities/NPC';
+import { Map, MapType } from '../entities/Map';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import {
   generateCampaignLore,
   generateNPCs,
   generateScenario,
   summarizeSession,
+  generatePlayerBackgrounds,
+  generateMapDescription,
+  generateDetailedEncounters,
 } from '../services/ai';
 
 const router = Router();
@@ -17,6 +21,7 @@ const router = Router();
 const campaignRepository = () => AppDataSource.getRepository(Campaign);
 const sessionRepository = () => AppDataSource.getRepository(Session);
 const npcRepository = () => AppDataSource.getRepository(NPC);
+const mapRepository = () => AppDataSource.getRepository(Map);
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
@@ -268,6 +273,197 @@ router.get(
     } catch (error) {
       console.error('Get NPCs error:', error);
       res.status(500).json({ error: 'Failed to get NPCs' });
+    }
+  }
+);
+
+// Generate player backgrounds
+router.post(
+  '/campaigns/:id/backgrounds',
+  [
+    param('id').isUUID(),
+    body('playerCount').optional().isInt({ min: 1, max: 10 }),
+  ],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const { playerCount = campaign.playerCount || 4 } = req.body;
+
+      const campaignContext = `
+Campaign: ${campaign.name}
+Setting: ${campaign.setting || 'Fantasy'}
+Theme: ${campaign.theme || 'Adventure'}
+Tone: ${campaign.tone || 'Balanced'}
+${campaign.worldLore ? `World Lore: ${JSON.stringify(campaign.worldLore).substring(0, 500)}` : ''}
+      `.trim();
+
+      const backgrounds = await generatePlayerBackgrounds(campaignContext, playerCount);
+
+      res.json({ backgrounds });
+    } catch (error) {
+      console.error('Generate backgrounds error:', error);
+      res.status(500).json({ error: 'Failed to generate player backgrounds' });
+    }
+  }
+);
+
+// Generate map description
+router.post(
+  '/campaigns/:id/maps',
+  [
+    param('id').isUUID(),
+    body('description').notEmpty().trim(),
+    body('mapType').optional().isIn(['dungeon', 'tavern', 'wilderness', 'town', 'castle', 'cave', 'other']),
+    body('sessionId').optional().isUUID(),
+  ],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const { description, mapType = 'other', sessionId } = req.body;
+
+      const campaignContext = `
+Campaign: ${campaign.name}
+Setting: ${campaign.setting || 'Fantasy'}
+Theme: ${campaign.theme || 'Adventure'}
+Tone: ${campaign.tone || 'Balanced'}
+      `.trim();
+
+      const mapDescription = await generateMapDescription(campaignContext, description, mapType);
+
+      // Save map to database
+      const mapEntity = mapRepository().create({
+        campaignId: campaign.id,
+        sessionId: sessionId || undefined,
+        name: mapDescription.name,
+        description: mapDescription.description,
+        type: mapType as MapType,
+        gridSize: mapDescription.gridSize || 50,
+        dimensions: mapDescription.dimensions || { width: 30, height: 30 },
+      });
+
+      await mapRepository().save(mapEntity);
+
+      res.json({ map: { ...mapEntity, details: mapDescription } });
+    } catch (error) {
+      console.error('Generate map error:', error);
+      res.status(500).json({ error: 'Failed to generate map' });
+    }
+  }
+);
+
+// Get campaign maps
+router.get(
+  '/campaigns/:id/maps',
+  [param('id').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const maps = await mapRepository().find({
+        where: { campaignId: campaign.id },
+        order: { createdAt: 'DESC' },
+      });
+
+      res.json(maps);
+    } catch (error) {
+      console.error('Get maps error:', error);
+      res.status(500).json({ error: 'Failed to get maps' });
+    }
+  }
+);
+
+// Generate detailed encounters
+router.post(
+  '/campaigns/:id/encounters',
+  [
+    param('id').isUUID(),
+    body('partyLevel').optional().isInt({ min: 1, max: 20 }),
+    body('partySize').optional().isInt({ min: 1, max: 10 }),
+    body('encounterType').optional().isString(),
+  ],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const {
+        partyLevel = 1,
+        partySize = campaign.playerCount || 4,
+        encounterType = 'combat',
+      } = req.body;
+
+      const campaignContext = `
+Campaign: ${campaign.name}
+Setting: ${campaign.setting || 'Fantasy'}
+Theme: ${campaign.theme || 'Adventure'}
+Tone: ${campaign.tone || 'Balanced'}
+${campaign.worldLore ? `World Lore: ${JSON.stringify(campaign.worldLore).substring(0, 500)}` : ''}
+      `.trim();
+
+      const encounters = await generateDetailedEncounters(
+        campaignContext,
+        partyLevel,
+        partySize,
+        encounterType
+      );
+
+      res.json({ encounters });
+    } catch (error) {
+      console.error('Generate encounters error:', error);
+      res.status(500).json({ error: 'Failed to generate encounters' });
     }
   }
 );

@@ -159,8 +159,8 @@ AI Generation → Backend Processing → Foundry API Calls → VTT Updates
 - **Networking:** Docker network for inter-service communication
 
 ### LLM Provider
-- **Primary:** Anthropic Claude API (for superior long-context and content quality)
-- **Fallback:** OpenAI GPT-4 API
+- **Primary:** Groq API (llama-3.3-70b-versatile, free tier, OpenAI-compatible SDK)
+- **SDK:** OpenAI Node.js SDK pointed at Groq endpoint
 
 ---
 
@@ -421,27 +421,50 @@ Create [CONTENT_TYPE] based on: [USER_DESCRIPTION]"
 
 ## 9. Development Phases
 
-### Phase 1: Foundation (2-3 weeks)
-- [ ] Project setup (Docker Compose, DB, basic API structure)
-- [ ] User authentication system
-- [ ] Campaign creation & management
-- [ ] Basic session CRUD
-- [ ] Simple web frontend dashboard
-- [ ] Database schema implementation
+### Phase 1: Foundation ✅ COMPLETE
+- [x] Project setup (Docker Compose, PostgreSQL, API structure)
+- [x] User authentication system (JWT-based)
+- [x] Campaign creation & management (full CRUD)
+- [x] Basic session CRUD
+- [x] React frontend dashboard with tabs
+- [x] Database schema (User, Campaign, Session, SessionResult, NPC, Map entities)
 
-### Phase 2: AI Integration (3-4 weeks)
-- [ ] LLM API integration (Claude)
-- [ ] Campaign lore generation
-- [ ] Scenario generation
-- [ ] NPC generation
-- [ ] Basic prompt engineering and testing
+### Phase 2: AI Integration ✅ COMPLETE
+**Completed:**
+- [x] LLM API integration (Groq - llama-3.3-70b-versatile, OpenAI-compatible SDK)
+- [x] Campaign lore generation (world description, factions, locations, adventure hooks)
+- [x] Scenario generation (objectives, encounters with difficulty, rewards, plot twists)
+- [x] NPC generation (3 NPCs with stats, personalities, motivations, backgrounds)
+- [x] Prompt engineering and Groq/OpenAI support
+- [x] Tabbed interface for Lore, NPCs, Sessions
+- [x] Session scenario generation with continuity awareness
+- [x] Frontend performance optimization (useCallback for load functions, eliminated duplicate API calls)
+- [x] Loading spinner and skeleton components
+- [x] Error boundary component (React error boundary wrapping entire app)
+- [x] Error alerts with dismiss functionality
+- [x] Session result capture UI (FinalizeSessionForm with dynamic lists, AI summarize)
+- [x] Player background generation (AI service + API route + frontend)
+- [x] Better error handling and user feedback (ErrorAlert component)
 
-### Phase 3: Content Generation (3-4 weeks)
-- [ ] Map generation (description → Foundry format)
-- [ ] Token generation (description → images)
-- [ ] Player background generation
-- [ ] Scenario encounter design
-- [ ] Content storage and retrieval
+**Remaining/Deferred:**
+- [ ] Request debouncing (useDebounce hook exists but unused)
+- [ ] Pagination for large content lists
+
+### Phase 3: Content Generation 🔄 IN PROGRESS
+**Completed:**
+- [x] Map generation AI function (generateMapDescription - rooms, POIs, encounters, atmosphere, hazards)
+- [x] Map API routes (POST generate + GET list for campaigns)
+- [x] Maps tab in CampaignDetail with generation form and detailed display
+- [x] Detailed encounter generation (CR, stats, tactics, alternative resolutions)
+- [x] Encounters API route
+- [x] Player background generation (AI + API + frontend)
+- [x] Content storage in database (maps, NPCs, session results)
+
+**Remaining:**
+- [ ] Token/image generation (description → images)
+- [ ] Static asset serving from Docker volume (/api/assets route)
+- [ ] Map image generation or integration
+- [ ] Content export/download functionality
 
 ### Phase 4: Foundry VTT Integration (2-3 weeks)
 - [ ] Foundry API setup and authentication

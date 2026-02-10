@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import type { Campaign, Session, NPC } from '../types';
+import type { Campaign, Session, NPC, MapData } from '../types';
 import { SessionStatus } from '../types';
+import { LoadingSpinner, LoadingSkeleton, ErrorAlert } from '../components/LoadingSpinner';
 
 export function CampaignDetail() {
   const { id } = useParams<{ id: string }>();
@@ -10,21 +11,16 @@ export function CampaignDetail() {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [npcs, setNpcs] = useState<NPC[]>([]);
+  const [maps, setMaps] = useState<MapData[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatingLore, setGeneratingLore] = useState(false);
   const [generatingNPCs, setGeneratingNPCs] = useState(false);
+  const [generatingMap, setGeneratingMap] = useState(false);
   const [showCreateSessionModal, setShowCreateSessionModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'sessions' | 'lore' | 'npcs'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'lore' | 'npcs' | 'maps'>('sessions');
+  const [error, setError] = useState<string>('');
 
-  useEffect(() => {
-    if (id) {
-      loadCampaign();
-      loadSessions();
-      loadNPCs();
-    }
-  }, [id]);
-
-  const loadCampaign = async () => {
+  const loadCampaign = useCallback(async () => {
     try {
       const data = await api.getCampaign(id!);
       setCampaign(data);
@@ -34,36 +30,56 @@ export function CampaignDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, navigate]);
 
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     try {
       const data = await api.getSessions(id!);
       setSessions(data);
     } catch (error) {
       console.error('Failed to load sessions:', error);
     }
-  };
+  }, [id]);
 
-  const loadNPCs = async () => {
+  const loadNPCs = useCallback(async () => {
     try {
       const data = await api.getCampaignNPCs(id!);
       setNpcs(data);
     } catch (error) {
       console.error('Failed to load NPCs:', error);
     }
-  };
+  }, [id]);
+
+  const loadMaps = useCallback(async () => {
+    try {
+      const data = await api.getCampaignMaps(id!);
+      setMaps(data);
+    } catch (error) {
+      console.error('Failed to load maps:', error);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (id) {
+      loadCampaign();
+      loadSessions();
+      loadNPCs();
+      loadMaps();
+    }
+  }, [id, loadCampaign, loadSessions, loadNPCs, loadMaps]);
 
   const handleGenerateLore = async () => {
     if (!campaign) return;
     setGeneratingLore(true);
+    setError('');
     try {
       const { campaign: updatedCampaign } = await api.generateCampaignLore(campaign.id);
       setCampaign(updatedCampaign);
       setActiveTab('lore');
-    } catch (error) {
-      console.error('Failed to generate lore:', error);
-      alert('Failed to generate lore. Please try again.');
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to generate lore. Make sure your Groq API key is set.';
+      setError(errorMsg);
+      console.error('Failed to generate lore:', err);
     } finally {
       setGeneratingLore(false);
     }
@@ -72,13 +88,15 @@ export function CampaignDetail() {
   const handleGenerateNPCs = async () => {
     if (!campaign) return;
     setGeneratingNPCs(true);
+    setError('');
     try {
       const { npcs: newNPCs } = await api.generateNPCs(campaign.id, 3);
       setNpcs([...newNPCs, ...npcs]);
       setActiveTab('npcs');
-    } catch (error) {
-      console.error('Failed to generate NPCs:', error);
-      alert('Failed to generate NPCs. Please try again.');
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to generate NPCs. Make sure your Groq API key is set.';
+      setError(errorMsg);
+      console.error('Failed to generate NPCs:', err);
     } finally {
       setGeneratingNPCs(false);
     }
@@ -123,13 +141,23 @@ export function CampaignDetail() {
     );
   }
 
-  const worldLore = campaign.worldLore as {
-    worldDescription?: string;
-    history?: string;
-    factions?: Array<{ name: string; description: string }>;
-    locations?: Array<{ name: string; description: string }>;
-    hooks?: string[];
-  } | undefined;
+  const rawLore = campaign.worldLore as Record<string, unknown> | undefined;
+
+  // Normalize worldLore - AI may return different shapes
+  const worldLore = rawLore ? {
+    worldDescription: [
+      rawLore.worldDescription,
+      rawLore.worldDescription2,
+      rawLore.worldDescription3,
+    ].filter(Boolean).join('\n\n') || (rawLore.overview as string) || undefined,
+    history: [
+      rawLore.history,
+      rawLore.history2,
+    ].filter(Boolean).join('\n\n') || undefined,
+    factions: (rawLore.factions || rawLore.major_factions) as Array<{ name: string; description: string }> | undefined,
+    locations: (rawLore.locations || rawLore.notable_locations) as Array<{ name: string; description: string }> | undefined,
+    hooks: rawLore.hooks as Array<string | { name: string; description: string }> | undefined,
+  } : undefined;
 
   return (
     <div className="min-h-screen">
@@ -142,6 +170,9 @@ export function CampaignDetail() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {error && (
+          <ErrorAlert error={error} onDismiss={() => setError('')} />
+        )}
         <div className="mb-8">
           <div className="flex justify-between items-start">
             <div>
@@ -206,6 +237,16 @@ export function CampaignDetail() {
             }`}
           >
             NPCs ({npcs.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('maps')}
+            className={`pb-3 px-1 border-b-2 ${
+              activeTab === 'maps'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-gray-400 hover:text-white'
+            }`}
+          >
+            Maps ({maps.length})
           </button>
         </div>
 
@@ -351,8 +392,17 @@ export function CampaignDetail() {
                     <ul className="space-y-2">
                       {worldLore.hooks.map((hook, i) => (
                         <li key={i} className="text-gray-300 flex gap-2">
-                          <span className="text-yellow-400">*</span>
-                          {hook}
+                          <span className="text-yellow-400">★</span>
+                          <div>
+                            {typeof hook === 'string' ? (
+                              hook
+                            ) : (
+                              <>
+                                <span className="font-medium text-yellow-300">{hook.name}: </span>
+                                {hook.description}
+                              </>
+                            )}
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -442,6 +492,148 @@ export function CampaignDetail() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Maps Tab */}
+        {activeTab === 'maps' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold">Maps</h2>
+            </div>
+
+            {/* Map Generation Form */}
+            <MapGenerationForm
+              campaignId={id!}
+              generating={generatingMap}
+              onGenerate={async (description, mapType) => {
+                setGeneratingMap(true);
+                setError('');
+                try {
+                  const { map } = await api.generateMap(id!, description, mapType);
+                  setMaps([map, ...maps]);
+                } catch (err) {
+                  const errorMsg = err instanceof Error ? err.message : 'Failed to generate map';
+                  setError(errorMsg);
+                } finally {
+                  setGeneratingMap(false);
+                }
+              }}
+            />
+
+            {maps.length === 0 && !generatingMap && (
+              <div className="text-center py-12 bg-gray-800 rounded-lg border border-gray-700">
+                <p className="text-gray-400">No maps generated yet. Use the form above to generate one.</p>
+              </div>
+            )}
+
+            {maps.map((map) => (
+              <div key={map.id} className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <h3 className="text-lg font-semibold">{map.name}</h3>
+                    <span className="text-xs text-purple-400 uppercase">{map.type}</span>
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    {new Date(map.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+
+                {map.description && (
+                  <p className="text-gray-400 text-sm mb-4 whitespace-pre-line">{map.description}</p>
+                )}
+
+                {map.details && (
+                  <div className="space-y-4">
+                    {map.details.atmosphere && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-400 mb-1">Atmosphere</h4>
+                        <p className="text-gray-300 text-sm">
+                          {typeof map.details.atmosphere === 'string'
+                            ? map.details.atmosphere
+                            : (map.details.atmosphere as { description?: string }).description || JSON.stringify(map.details.atmosphere)}
+                        </p>
+                      </div>
+                    )}
+
+                    {map.details.rooms && map.details.rooms.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-400 mb-2">Rooms / Areas</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {map.details.rooms.map((room, i) => (
+                            <div key={i} className="bg-gray-700/50 rounded p-3">
+                              <h5 className="font-medium text-blue-400 text-sm">{room.name}</h5>
+                              <p className="text-gray-400 text-xs mt-1">{room.description}</p>
+                              {room.features && room.features.length > 0 && (
+                                <div className="mt-1 text-xs text-gray-500">
+                                  Features: {room.features.map((f: unknown) =>
+                                    typeof f === 'string' ? f : (f as { name?: string }).name || JSON.stringify(f)
+                                  ).join(', ')}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {map.details.pointsOfInterest && map.details.pointsOfInterest.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-400 mb-2">Points of Interest</h4>
+                        <div className="space-y-2">
+                          {map.details.pointsOfInterest.map((poi, i) => (
+                            <div key={i} className="flex gap-2 text-sm">
+                              <span className="text-yellow-400">★</span>
+                              <div>
+                                <span className="font-medium text-yellow-300">{poi.name}</span>
+                                <span className="text-gray-500"> ({poi.type})</span>
+                                <p className="text-gray-400 text-xs">{poi.description}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {map.details.encounters && map.details.encounters.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-400 mb-2">Encounters</h4>
+                        <div className="space-y-2">
+                          {map.details.encounters.map((enc, i) => (
+                            <div key={i} className="bg-gray-700/50 rounded p-3">
+                              <div className="flex justify-between">
+                                <span className="text-sm font-medium">{enc.location}</span>
+                                <span className="text-xs text-red-400">{enc.difficulty}</span>
+                              </div>
+                              <p className="text-gray-400 text-xs mt-1">{enc.description}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {map.details.hazards && map.details.hazards.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-400 mb-1">Hazards</h4>
+                        <ul className="space-y-1">
+                          {map.details.hazards.map((hazard, i) => (
+                            <li key={i} className="text-gray-300 text-sm flex gap-2">
+                              <span className="text-red-400">⚠</span>
+                              {typeof hazard === 'string' ? hazard : (
+                                <span>
+                                  <span className="font-medium text-red-300">{(hazard as { name?: string }).name}: </span>
+                                  {(hazard as { description?: string }).description}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </main>
@@ -557,6 +749,71 @@ function CreateSessionModal({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+/* --- MapGenerationForm Component --- */
+
+const MAP_TYPES = [
+  { value: 'dungeon', label: 'Dungeon' },
+  { value: 'wilderness', label: 'Wilderness' },
+  { value: 'city', label: 'City / Town' },
+  { value: 'building', label: 'Building' },
+  { value: 'cave', label: 'Cave' },
+  { value: 'other', label: 'Other' },
+];
+
+function MapGenerationForm({
+  campaignId,
+  generating,
+  onGenerate,
+}: {
+  campaignId: string;
+  generating: boolean;
+  onGenerate: (description: string, mapType: string) => Promise<void>;
+}) {
+  const [description, setDescription] = useState('');
+  const [mapType, setMapType] = useState('dungeon');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!description.trim()) return;
+    await onGenerate(description.trim(), mapType);
+    setDescription('');
+  };
+
+  return (
+    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+      <h3 className="text-sm font-medium text-gray-400 mb-3">Generate New Map</h3>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="flex gap-3">
+          <select
+            value={mapType}
+            onChange={(e) => setMapType(e.target.value)}
+            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+          >
+            {MAP_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe the location (e.g., An abandoned dwarven forge beneath a volcano)"
+            className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+            required
+          />
+          <button
+            type="submit"
+            disabled={generating || !description.trim()}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded font-medium text-sm disabled:opacity-50 whitespace-nowrap"
+          >
+            {generating ? 'Generating...' : 'Generate Map'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
