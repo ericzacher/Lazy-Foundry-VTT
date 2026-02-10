@@ -35,33 +35,23 @@ router.use(authMiddleware);
 // Health check for Foundry VTT
 router.get('/health', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const isHealthy = await foundrySyncService.healthCheck();
-    
-    // Also check Foundry status directly
     const foundryUrl = process.env.FOUNDRY_URL || 'http://foundry:30000';
-    let foundryStatus = null;
-    try {
-      const statusRes = await fetch(`${foundryUrl}/api/status`);
-      if (statusRes.ok) {
-        foundryStatus = await statusRes.json();
-      }
-    } catch (e) {
-      // Ignore fetch errors
-    }
+    const status = await foundrySyncService.getStatus();
+    const isHealthy = await foundrySyncService.healthCheck();
     
     if (isHealthy) {
       res.json({ 
         status: 'connected', 
         foundryUrl,
-        worldActive: foundryStatus?.active || false,
-        foundryVersion: foundryStatus?.version
+        worldActive: status.active || false,
+        foundryVersion: status.version,
+        world: status.world,
+        system: status.system
       });
     } else {
       res.status(503).json({ 
         status: 'disconnected', 
-        error: foundryStatus?.active === false 
-          ? 'Foundry VTT is running but no world is loaded. Please load a world in Foundry VTT first.'
-          : 'Foundry VTT is not accessible',
+        error: 'Foundry VTT is not accessible',
         foundryUrl,
         worldActive: false
       });
@@ -105,8 +95,9 @@ router.post(
         return;
       }
 
-      // Build scene data with full URL for background image
-      const apiBaseUrl = `${req.protocol}://${req.get('host')}`;
+      // Build scene data with Docker-internal URL for background image
+      // Foundry container accesses the API via Docker network hostname 'api:3001'
+      const apiBaseUrl = process.env.API_INTERNAL_URL || 'http://api:3001';
       const sceneData = {
         ...map.foundryData,
         name: map.name,
@@ -172,8 +163,8 @@ router.post(
         return;
       }
 
-      // Build actor data for Foundry
-      const apiBaseUrl = `${req.protocol}://${req.get('host')}`;
+      // Build actor data for Foundry (Docker-internal URL)
+      const apiBaseUrl = process.env.API_INTERNAL_URL || 'http://api:3001';
       const actorData = {
         name: npc.name,
         type: 'npc',
@@ -343,7 +334,7 @@ router.post(
       for (const map of maps) {
         if (!map.foundryData || !map.imageUrl) continue;
 
-        const apiBaseUrl = `${req.protocol}://${req.get('host')}`;
+        const apiBaseUrl = process.env.API_INTERNAL_URL || 'http://api:3001';
         const sceneData = {
           ...map.foundryData,
           name: map.name,
@@ -370,7 +361,7 @@ router.post(
       });
 
       for (const npc of npcs) {
-        const apiBaseUrl = `${req.protocol}://${req.get('host')}`;
+        const apiBaseUrl = process.env.API_INTERNAL_URL || 'http://api:3001';
         const actorData = {
           name: npc.name,
           type: 'npc' as const,
