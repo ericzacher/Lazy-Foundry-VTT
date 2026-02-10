@@ -1,0 +1,86 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: lazy-foundry-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-lazy_foundry}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lazy-foundry-network
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: lazy-foundry-api
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-lazy_foundry}
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret-in-production}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      FOUNDRY_URL: http://foundry:30000
+      FOUNDRY_ADMIN_KEY: ${FOUNDRY_ADMIN_KEY}
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./api:/app
+      - /app/node_modules
+      - assets:/app/assets
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - lazy-foundry-network
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: lazy-foundry-web
+    environment:
+      VITE_API_URL: http://localhost:3001
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    depends_on:
+      - api
+    networks:
+      - lazy-foundry-network
+
+  foundry:
+    image: felddy/foundryvtt:release
+    container_name: lazy-foundry-vtt
+    environment:
+      FOUNDRY_LICENSE_KEY: ${KEY}
+      FOUNDRY_ADMIN_KEY: ${FOUNDRY_ADMIN_KEY:-admin}
+      FOUNDRY_USERNAME: ${FOUNDRY_USERNAME}
+      FOUNDRY_PASSWORD: ${FOUNDRY_PASSWORD}
+    volumes:
+      - foundry-data:/data
+    ports:
+      - "30000:30000"
+    networks:
+      - lazy-foundry-network
+
+volumes:
+  db-data:
+  foundry-data:
+  assets:
+
+networks:
+  lazy-foundry-network:
+    driver: bridge
