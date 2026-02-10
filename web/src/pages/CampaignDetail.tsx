@@ -541,15 +541,19 @@ export function CampaignDetail() {
                   </div>
                   <div className="flex items-center gap-2">
                     {map.foundryData && (
-                      <a
-                        href={`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/generate/campaigns/${map.campaignId}/maps/${map.id}/foundry-export`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1 rounded transition-colors"
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api.exportFoundryScene(id!, map.id);
+                          } catch (err) {
+                            console.error('Export failed:', err);
+                          }
+                        }}
+                        className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1 rounded transition-colors cursor-pointer"
                         title="Download Foundry VTT scene JSON"
                       >
                         ⬇ Foundry Export
-                      </a>
+                      </button>
                     )}
                     <span className="text-xs text-gray-500">
                       {new Date(map.createdAt).toLocaleDateString()}

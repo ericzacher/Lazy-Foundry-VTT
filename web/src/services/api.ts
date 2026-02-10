@@ -216,6 +216,28 @@ class ApiService {
     return this.request(`/api/generate/campaigns/${campaignId}/maps`);
   }
 
+  async exportFoundryScene(campaignId: string, mapId: string): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    const res = await fetch(`${API_URL}/api/generate/campaigns/${campaignId}/maps/${mapId}/foundry-export`, {
+      headers,
+    });
+    if (!res.ok) throw new Error('Failed to export Foundry scene');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const disposition = res.headers.get('Content-Disposition');
+    const filename = disposition?.match(/filename="(.+)"/)?.[1] || 'foundry-scene.json';
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   // Encounters
   async generateEncounters(
     campaignId: string,
