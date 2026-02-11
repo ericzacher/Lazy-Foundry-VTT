@@ -2,11 +2,21 @@ import { Router, Response } from 'express';
 import { body, param, validationResult } from 'express-validator';
 import { AppDataSource } from '../config/database';
 import { Campaign } from '../entities/Campaign';
+import { NPC } from '../entities/NPC';
+import { TimelineEvent } from '../entities/TimelineEvent';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import {
+  getCampaignSummary,
+  getNPCCurrentStatus,
+  addTimelineEvent,
+  getTimeline,
+} from '../services/sessionContinuity';
 
 const router = Router();
 
 const campaignRepository = () => AppDataSource.getRepository(Campaign);
+const npcRepository = () => AppDataSource.getRepository(NPC);
+const timelineRepository = () => AppDataSource.getRepository(TimelineEvent);
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
@@ -176,6 +186,165 @@ router.delete(
     } catch (error) {
       console.error('Delete campaign error:', error);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// Get campaign summary (sessions, timeline, NPC statuses)
+router.get(
+  '/:id/summary',
+  [param('id').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const summary = await getCampaignSummary(campaign.id);
+      res.json({ summary });
+    } catch (error) {
+      console.error('Get campaign summary error:', error);
+      res.status(500).json({ error: 'Failed to get campaign summary' });
+    }
+  }
+);
+
+// Get NPC statuses for a campaign
+router.get(
+  '/:id/npc-status',
+  [param('id').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const npcs = await npcRepository().find({
+        where: { campaignId: campaign.id },
+      });
+
+      const statuses: Record<string, unknown> = {};
+      for (const npc of npcs) {
+        const status = await getNPCCurrentStatus(npc.id);
+        if (status) statuses[npc.name] = status;
+      }
+
+      res.json({ statuses });
+    } catch (error) {
+      console.error('Get NPC statuses error:', error);
+      res.status(500).json({ error: 'Failed to get NPC statuses' });
+    }
+  }
+);
+
+// Get campaign timeline
+router.get(
+  '/:id/timeline',
+  [param('id').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const events = await getTimeline(campaign.id);
+      res.json({ events });
+    } catch (error) {
+      console.error('Get timeline error:', error);
+      res.status(500).json({ error: 'Failed to get timeline' });
+    }
+  }
+);
+
+// Add timeline event
+router.post(
+  '/:id/timeline',
+  [
+    param('id').isUUID(),
+    body('sessionId').optional().isUUID(),
+    body('eventDate').notEmpty().trim(),
+    body('title').notEmpty().trim(),
+    body('description').optional().trim(),
+    body('eventType').notEmpty().isIn(['combat', 'dialogue', 'discovery', 'death', 'political', 'travel', 'other']),
+    body('significance').notEmpty().isIn(['minor', 'major', 'critical']),
+    body('peopleInvolved').optional().isArray(),
+    body('locations').optional().isArray(),
+  ],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const {
+        sessionId,
+        eventDate,
+        title,
+        description,
+        eventType,
+        significance,
+        peopleInvolved,
+        locations,
+      } = req.body;
+
+      const event = await addTimelineEvent(campaign.id, sessionId || null, {
+        eventDate,
+        title,
+        description,
+        eventType,
+        significance,
+        peopleInvolved,
+        locations,
+      });
+
+      res.status(201).json({ event });
+    } catch (error) {
+      console.error('Add timeline event error:', error);
+      res.status(500).json({ error: 'Failed to add timeline event' });
     }
   }
 );

@@ -4,13 +4,19 @@ import { AppDataSource } from '../config/database';
 import { Session, SessionStatus } from '../entities/Session';
 import { SessionResult } from '../entities/SessionResult';
 import { Campaign } from '../entities/Campaign';
+import { NPCHistory } from '../entities/NPCHistory';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import {
+  autoSummarizeSession,
+  trackNPCChanges,
+} from '../services/sessionContinuity';
 
 const router = Router();
 
 const sessionRepository = () => AppDataSource.getRepository(Session);
 const sessionResultRepository = () => AppDataSource.getRepository(SessionResult);
 const campaignRepository = () => AppDataSource.getRepository(Campaign);
+const npcHistoryRepository = () => AppDataSource.getRepository(NPCHistory);
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
@@ -252,6 +258,16 @@ router.post(
     body('playerDecisions').optional().isArray(),
     body('worldChanges').optional().isObject(),
     body('unfinishedThreads').optional().isArray(),
+    // Phase 5 fields
+    body('plotAdvancement').optional().trim(),
+    body('durationMinutes').optional().isInt(),
+    body('xpAwarded').optional().isInt(),
+    body('lootAwarded').optional().isObject(),
+    body('deathCount').optional().isInt(),
+    body('captureMethod').optional().isIn(['manual', 'ai_summarized']),
+    body('transcript').optional().trim(),
+    body('mood').optional().isIn(['intense', 'comedic', 'dramatic', 'mixed']),
+    body('characterDevelopment').optional().isObject(),
   ],
   async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
@@ -284,6 +300,15 @@ router.post(
         playerDecisions,
         worldChanges,
         unfinishedThreads,
+        plotAdvancement,
+        durationMinutes,
+        xpAwarded,
+        lootAwarded,
+        deathCount,
+        captureMethod,
+        transcript,
+        mood,
+        characterDevelopment,
       } = req.body;
 
       let result = session.result;
@@ -300,6 +325,16 @@ router.post(
       if (playerDecisions !== undefined) result.playerDecisions = playerDecisions;
       if (worldChanges !== undefined) result.worldChanges = worldChanges;
       if (unfinishedThreads !== undefined) result.unfinishedThreads = unfinishedThreads;
+      // Phase 5 fields
+      if (plotAdvancement !== undefined) result.plotAdvancement = plotAdvancement;
+      if (durationMinutes !== undefined) result.durationMinutes = durationMinutes;
+      if (xpAwarded !== undefined) result.xpAwarded = xpAwarded;
+      if (lootAwarded !== undefined) result.lootAwarded = lootAwarded;
+      if (deathCount !== undefined) result.deathCount = deathCount;
+      if (captureMethod !== undefined) result.captureMethod = captureMethod;
+      if (transcript !== undefined) result.transcript = transcript;
+      if (mood !== undefined) result.mood = mood;
+      if (characterDevelopment !== undefined) result.characterDevelopment = characterDevelopment;
 
       await sessionResultRepository().save(result);
 
@@ -353,6 +388,153 @@ router.get(
     } catch (error) {
       console.error('Get session results error:', error);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// Auto-summarize session with AI
+router.post(
+  '/sessions/:id/auto-summarize',
+  [
+    param('id').isUUID(),
+    body('transcript').notEmpty().trim(),
+    body('partyComposition').optional().trim(),
+  ],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const session = await sessionRepository().findOne({
+        where: { id: req.params.id },
+        relations: ['campaign', 'result'],
+      });
+
+      if (!session) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+
+      if (session.campaign.ownerId !== req.userId) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+
+      const { transcript, partyComposition = 'Mixed party' } = req.body;
+      const campaign = session.campaign;
+
+      const campaignContext = `
+Campaign: ${campaign.name}
+Setting: ${campaign.setting || 'Fantasy'}
+Theme: ${campaign.theme || 'Adventure'}
+Tone: ${campaign.tone || 'Balanced'}
+${campaign.worldLore ? `World Lore: ${JSON.stringify(campaign.worldLore).substring(0, 1000)}` : ''}
+      `.trim();
+
+      const summaryData = await autoSummarizeSession(
+        transcript,
+        campaignContext,
+        partyComposition
+      );
+
+      // Save to session result
+      let result = session.result;
+      if (!result) {
+        result = sessionResultRepository().create({
+          sessionId: session.id,
+        });
+      }
+
+      result.summary = summaryData.summary;
+      result.events = summaryData.keyEvents || [];
+      result.npcInteractions = summaryData.npcInteractions || {};
+      result.worldChanges = summaryData.worldChanges || {};
+      result.plotAdvancement = summaryData.plotAdvancement;
+      result.unfinishedThreads = summaryData.unresolvedThreads || [];
+      result.captureMethod = 'ai_summarized';
+      result.transcript = transcript;
+
+      await sessionResultRepository().save(result);
+
+      res.json({ summary: summaryData, result });
+    } catch (error) {
+      console.error('Auto-summarize error:', error);
+      res.status(500).json({ error: 'Failed to auto-summarize session' });
+    }
+  }
+);
+
+// Track NPC changes for a session
+router.post(
+  '/sessions/:id/npc-history',
+  [
+    param('id').isUUID(),
+    body('npcId').isUUID(),
+    body('alignmentBefore').optional().trim(),
+    body('alignmentAfter').optional().trim(),
+    body('loyaltyBefore').optional().trim(),
+    body('loyaltyAfter').optional().trim(),
+    body('statusBefore').optional().trim(),
+    body('statusAfter').optional().trim(),
+    body('relationshipChange').optional().trim(),
+    body('notes').optional().trim(),
+    body('eventsInvolved').optional().isArray(),
+  ],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const session = await sessionRepository().findOne({
+        where: { id: req.params.id },
+        relations: ['campaign'],
+      });
+
+      if (!session) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+
+      if (session.campaign.ownerId !== req.userId) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+
+      const {
+        npcId,
+        alignmentBefore,
+        alignmentAfter,
+        loyaltyBefore,
+        loyaltyAfter,
+        statusBefore,
+        statusAfter,
+        relationshipChange,
+        notes,
+        eventsInvolved,
+      } = req.body;
+
+      const history = await trackNPCChanges(npcId, session.id, {
+        alignmentBefore,
+        alignmentAfter,
+        loyaltyBefore,
+        loyaltyAfter,
+        statusBefore,
+        statusAfter,
+        relationshipChange,
+        notes,
+        eventsInvolved,
+      });
+
+      res.json({ history });
+    } catch (error) {
+      console.error('Track NPC history error:', error);
+      res.status(500).json({ error: 'Failed to track NPC history' });
     }
   }
 );

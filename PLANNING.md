@@ -430,7 +430,6 @@ Create [CONTENT_TYPE] based on: [USER_DESCRIPTION]"
 - [x] Database schema (User, Campaign, Session, SessionResult, NPC, Map entities)
 
 ### Phase 2: AI Integration ✅ COMPLETE
-**Completed:**
 - [x] LLM API integration (Groq - llama-3.3-70b-versatile, OpenAI-compatible SDK)
 - [x] Campaign lore generation (world description, factions, locations, adventure hooks)
 - [x] Scenario generation (objectives, encounters with difficulty, rewards, plot twists)
@@ -446,12 +445,11 @@ Create [CONTENT_TYPE] based on: [USER_DESCRIPTION]"
 - [x] Player background generation (AI service + API route + frontend)
 - [x] Better error handling and user feedback (ErrorAlert component)
 
-**Remaining/Deferred:**
+**Deferred to Phase 6:**
 - [ ] Request debouncing (useDebounce hook exists but unused)
 - [ ] Pagination for large content lists
 
-### Phase 3: Content Generation 🔄 IN PROGRESS
-**Completed:**
+### Phase 3: Content Generation ✅ COMPLETE
 - [x] Map generation AI function (generateMapDescription - rooms, POIs, encounters, atmosphere, hazards)
 - [x] Map API routes (POST generate + GET list for campaigns)
 - [x] Maps tab in CampaignDetail with generation form and detailed display
@@ -459,33 +457,78 @@ Create [CONTENT_TYPE] based on: [USER_DESCRIPTION]"
 - [x] Encounters API route
 - [x] Player background generation (AI + API + frontend)
 - [x] Content storage in database (maps, NPCs, session results)
+- [x] Token generation (DiceBear API + Sharp fallback, 400x400 PNGs)
+- [x] Static asset serving from Docker volume (/api/assets route)
+- [x] Procedural map image generation (rot-js + Sharp PNG rendering, Foundry-compatible scenes)
+- [x] Content export (Foundry JSON export)
 
-**Remaining:**
-- [ ] Token/image generation (description → images)
-- [ ] Static asset serving from Docker volume (/api/assets route)
-- [ ] Map image generation or integration
-- [ ] Content export/download functionality
+### Phase 4: Foundry VTT Integration ✅ COMPLETE
+- [x] Socket.io integration with Foundry VTT (WebSocket-based, real-time)
+- [x] Automated auth flow (admin login → world launch → GM join → socket connect)
+- [x] Scene sync (maps with walls, lighting, fog of war, backgrounds)
+- [x] Actor sync (NPCs with D&D 5e stats, biography, token images)
+- [x] Journal sync (campaign lore as rich HTML entries)
+- [x] Bulk sync (entire campaigns in one operation)
+- [x] Sync status tracking in DB (maps + NPCs: never/pending/synced/error)
+- [x] Frontend sync UI with status badges and individual/bulk sync buttons
+- [x] Auto-setup (D&D 5e system install, world creation, GM password clear)
+- [x] Shared Docker volume for images (no cross-container HTTP)
+- [x] Connection health monitoring endpoint
 
-### Phase 4: Foundry VTT Integration (2-3 weeks)
-- [ ] Foundry API setup and authentication
-- [ ] Scene creation and management
-- [ ] Actor (NPC) import
-- [ ] Token placement
-- [ ] Sync mechanism between backend and Foundry
+### Phase 5: Session Results & Continuity (2-3 weeks) 🔄 IN PROGRESS
+- [ ] Enhanced SessionResult entity (9 new fields: plotAdvancement, transcript, mood, etc.)
+- [ ] NPCHistory entity (track NPC changes per session)
+- [ ] TimelineEvent entity (campaign timeline management)
+- [ ] Session continuity service (AI summarization + NPC tracking + continuity context)
+- [ ] Auto-summarize endpoint (AI extracts 6 key fields from transcripts)
+- [ ] Campaign summary endpoint (aggregate sessions, timeline, NPC statuses)
+- [ ] NPC history and timeline CRUD endpoints
+- [ ] Continuity-aware scenario generation (references past sessions)
+- [ ] Enhanced finalize form with transcript + auto-summarize UI
+- [ ] Campaign timeline tab in CampaignDetail
+- [ ] NPC status badges and history display
 
-### Phase 5: Session Results & Continuity (2-3 weeks)
-- [ ] Session result capture system
-- [ ] Result summary/summarization
-- [ ] Continuity prompt engineering
-- [ ] "Continue campaign" workflow
-- [ ] Session history and analytics
+### Phase 6: Polish & Enhancement (2 weeks) ✅ **COMPLETE**
+- [x] **Security Hardening**
+  - [x] Enhanced JWT authentication with refresh tokens
+  - [x] Input validation and sanitization middleware
+  - [x] Security headers (Helmet.js)
+  - [x] XSS protection
+- [x] **Operational Excellence**
+  - [x] Structured JSON logging with winston
+  - [x] Request tracing with correlation IDs
+  - [x] Health check endpoints (liveness, readiness, metrics)
+  - [x] Global error handling with AppError class
+- [x] **Performance Optimization**
+  - [x] Database connection pooling (5-20 connections)
+  - [x] Database indexes for query optimization
+  - [x] In-memory caching layer (Redis-ready)
+  - [x] Cursor-based pagination utility
+- [x] **Production Infrastructure**
+  - [x] Production Docker Compose configuration
+  - [x] Health checks for all containers
+  - [x] Graceful shutdown handling
+  - [x] Network isolation between services
+  - [x] Restart policies for reliability
+- [x] **Developer Experience**
+  - [x] Comprehensive Makefile (40+ commands)
+  - [x] Easy deployment automation
+  - [x] Database backup/restore tools
+  - [x] Log viewing and monitoring
+- [x] **Documentation**
+  - [x] Complete environment configuration guide
+  - [x] DM Guide (comprehensive user guide)
+  - [x] Quick Start Guide (5-minute setup)
+  - [x] Makefile reference documentation
+  - [x] Phase 6 implementation summary
+  - [x] Security guidelines
 
-### Phase 6: Polish & Enhancement (2 weeks)
-- [ ] UI/UX improvements
-- [ ] Performance optimization
-- [ ] Testing (unit, integration)
-- [ ] Documentation
-- [ ] Optional: Random generation templates
+**Deferred:**
+- [ ] UI/UX improvements (post-launch)
+- [ ] Integration/E2E tests (post-launch)
+- [ ] Random generation templates (optional enhancement)
+
+**See:** [Phase 6 Implementation Complete](docs/PHASE_6_IMPLEMENTATION_COMPLETE.md) for full details.
 
 ---
 
