@@ -1,13 +1,15 @@
 services:
-  db:
+  postgres:
     image: postgres:15-alpine
     container_name: lazy-foundry-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-lazy_foundry}
     volumes:
-      - db-data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
     ports:
       - "5432:5432"
     healthcheck:
@@ -16,41 +18,57 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - lazy-foundry-network
+      - backend
 
   api:
     build:
       context: ./api
       dockerfile: Dockerfile
     container_name: lazy-foundry-api
+    restart: unless-stopped
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3001
-      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-lazy_foundry}
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-lazy_foundry}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_MIN: ${DB_POOL_MIN:-5}
       JWT_SECRET: ${JWT_SECRET:-change-this-secret-in-production}
+      JWT_EXPIRY: ${JWT_EXPIRY:-24h}
+      REFRESH_TOKEN_EXPIRY: ${REFRESH_TOKEN_EXPIRY:-7d}
       GROQ_API_KEY: ${GROQ_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       FOUNDRY_URL: http://foundry:30000
       FOUNDRY_ADMIN_KEY: ${FOUNDRY_ADMIN_KEY:-admin}
       FOUNDRY_WORLD: ${FOUNDRY_WORLD:-test}
       FOUNDRY_GM_USER_ID: ${FOUNDRY_GM_USER_ID:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "3001:3001"
     volumes:
       - ./api:/app
       - /app/node_modules
       - assets:/app/assets
+      - ./logs:/app/logs
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
-      - lazy-foundry-network
+      - backend
+      - frontend
 
   web:
     build:
       context: ./web
       dockerfile: Dockerfile
     container_name: lazy-foundry-web
+    restart: unless-stopped
     environment:
       VITE_API_URL: http://localhost:3001
     ports:
@@ -60,12 +78,18 @@ services:
       - /app/node_modules
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
-      - lazy-foundry-network
+      - frontend
 
   foundry:
     image: felddy/foundryvtt:release
     container_name: lazy-foundry-vtt
+    restart: unless-stopped
     environment:
       FOUNDRY_LICENSE_KEY: ${KEY}
       FOUNDRY_ADMIN_KEY: ${FOUNDRY_ADMIN_KEY:-admin}
@@ -74,19 +98,24 @@ services:
       FOUNDRY_WORLD: ${FOUNDRY_WORLD:-test}
       CONTAINER_PATCHES: /data/container_patches
     volumes:
-      - foundry-data:/data
+      - foundry_data:/data
       - ./foundry/container_patches:/data/container_patches:ro
       - assets:/data/Data/lazy-foundry-assets:ro
     ports:
       - "30000:30000"
     networks:
-      - lazy-foundry-network
+      - backend
 
 volumes:
-  db-data:
-  foundry-data:
+  postgres_data:
+    driver: local
+  foundry_data:
+    driver: local
   assets:
+    driver: local
 
 networks:
-  lazy-foundry-network:
+  backend:
+    driver: bridge
+  frontend:
     driver: bridge

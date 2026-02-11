@@ -1,18 +1,50 @@
 # Lazy Foundry VTT
 
-AI-powered D&D campaign management platform with Foundry VTT integration. Generate maps, tokens, NPCs, lore, and scenarios using AI, then sync directly to your Foundry VTT instance via socket.io.
+**AI-powered D&D campaign management platform with Foundry VTT integration.**
+
+Generate maps, tokens, NPCs, lore, and scenarios using AI, then sync directly to your Foundry VTT instance. Reduce prep time from hours to minutes while maintaining narrative continuity across sessions.
+
+[![Status](https://img.shields.io/badge/status-Phase%206%20Complete-brightgreen)]()
+[![License](https://img.shields.io/badge/license-MIT-blue)]()
+[![Docker](https://img.shields.io/badge/docker-required-blue)]()
+
+## 📋 Table of Contents
+
+- [Features](#-implemented-features)
+- [Tech Stack](#-tech-stack)
+- [Quick Start](#-quick-start)
+- [Makefile Commands](#-makefile-commands)
+- [Documentation](#-documentation)
+- [Architecture](#-architecture)
+- [Development](#-development)
+- [Production Deployment](#-production-deployment)
+- [Troubleshooting](#-troubleshooting)
+- [Contributing](#-contributing)
+- [License](#-license)
+
+## 🚀 Quick Links
+
+| For DMs | For Developers | For Admins |
+|---------|---------------|------------|
+| [Quick Start Guide](docs/QUICK_START.md) | [Architecture](PLANNING.md) | [Makefile Reference](docs/MAKEFILE_REFERENCE.md) |
+| [DM Guide](docs/DM_GUIDE.md) | [Phase Documentation](docs/) | [ENV Configuration](docs/ENV_CONFIGURATION.md) |
+| [Troubleshooting](#-troubleshooting) | [Database Schema](#-database-schema) | [Phase 6 Features](docs/PHASE_6_QUICK_REFERENCE.md) |
+| | | [Security Guidelines](docs/SECURITY_GUIDELINES.md) |
 
 ## ✨ Implemented Features
 
-### 🔐 Authentication & User Management
-- JWT-based registration and login
-- Secure password hashing with bcrypt
+### 🔐 Authentication & User Management (Phase 6 Enhanced)
+- **JWT-based authentication** with token refresh mechanism
+- **Enhanced security**: Token age validation, expiry checking
+- **Secure password requirements**: 8+ characters, uppercase, numbers
+- **Input validation & sanitization**: XSS protection, email normalization
 - Protected API routes with auth middleware
 
 ### 🏰 Campaign Management
 - Create, read, update, delete campaigns
 - Campaign metadata: name, setting, theme, tone, player count
 - Per-user campaign ownership
+- **Caching support** for improved performance
 
 ### 📅 Session Tracking
 - Create and manage game sessions per campaign
@@ -26,6 +58,7 @@ AI-powered D&D campaign management platform with Foundry VTT integration. Genera
 - **Map Descriptions**: AI-described rooms, features, connections, and dimensions
 - **Encounter Generation**: Level-appropriate encounters with terrain and tactics
 - **Session Summaries**: Automatic session summarization
+- **Retry logic** with exponential backoff for resilience
 
 ### 🗺️ Procedural Map Generation
 - **rot-js** powered dungeon and cave generation (Digger, Cellular automata)
@@ -61,18 +94,31 @@ AI-powered D&D campaign management platform with Foundry VTT integration. Genera
 - **World auto-launch** via `FOUNDRY_WORLD` environment variable
 - Zero manual Foundry configuration required after license acceptance
 
+### 🛡️ Phase 6: Production Hardening
+- **Security Headers**: Helmet.js with CSP, HSTS, referrer policy
+- **Request Tracing**: Correlation IDs for tracking requests across logs
+- **Structured Logging**: JSON logging with levels (error, warn, info, debug)
+- **Error Handling**: Global error handler with AppError class
+- **Health Checks**: `/health/live`, `/health/ready`, `/health/metrics` endpoints
+- **Database Optimization**: Connection pooling, strategic indexes
+- **Caching**: In-memory cache for expensive queries
+- **Pagination**: Cursor-based pagination for large datasets
+- **Graceful Shutdown**: SIGTERM/SIGINT handling
+- **Production-ready Docker Compose**: Health checks, restart policies, network isolation
+
 ## 🏗️ Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | **Backend** | Node.js + TypeScript + Express |
-| **Database** | PostgreSQL 15 (TypeORM, auto-sync) |
+| **Database** | PostgreSQL 15 (TypeORM, connection pooling) |
 | **AI** | Groq API (llama-3.3-70b-versatile via OpenAI SDK) |
 | **Maps** | rot-js v2.2.0 (procedural) + sharp v0.33.2 (PNG) |
 | **Tokens** | DiceBear API + sharp fallback |
 | **Foundry Sync** | socket.io-client v4 (WebSocket) |
 | **Frontend** | React 18 + Vite + TypeScript + Tailwind CSS |
 | **Routing** | React Router v6 |
+| **Security** | Helmet.js, JWT, bcrypt, express-validator |
 | **Containers** | Docker + Docker Compose (4 services) |
 
 ## 🚀 Quick Start
@@ -105,8 +151,8 @@ FOUNDRY_WORLD=test
 # AI
 GROQ_API_KEY=your-groq-api-key
 
-# JWT
-JWT_SECRET=change-this-to-a-random-secret
+# JWT - IMPORTANT: Generate secure secret for production
+JWT_SECRET=$(openssl rand -base64 32)
 
 # Database (defaults work out of the box)
 DB_USER=postgres
@@ -115,7 +161,17 @@ DB_NAME=lazy_foundry
 EOF
 ```
 
-3. **Start all services**
+3. **Start all services using Make (recommended)**
+```bash
+# First time installation
+make install
+
+# Or manually
+make build
+make up
+```
+
+**Alternative: Using Docker Compose directly**
 ```bash
 docker compose up -d --build
 ```
@@ -130,6 +186,61 @@ On first boot, the Foundry container will:
    - Open http://localhost:30000
    - Accept the EULA and enter your license key
    - The world will auto-launch after that
+
+## 🛠️ Makefile Commands
+
+The project includes a comprehensive Makefile for easy management:
+
+### Quick Start
+```bash
+make help          # Show all available commands
+make install       # First time setup
+make up            # Start all services
+make down          # Stop all services
+make restart       # Restart all services
+```
+
+### Development
+```bash
+make dev           # Start with logs visible
+make logs          # View all logs
+make logs-api      # View API logs only
+make logs-json     # View pretty formatted JSON logs
+make shell-api     # Open shell in API container
+make shell-db      # Open PostgreSQL shell
+```
+
+### Database
+```bash
+make migrate-up    # Run database migrations
+make backup        # Create database backup
+make restore       # Restore from latest backup
+make db-reset      # Reset database (WARNING: deletes data)
+```
+
+### Health & Monitoring
+```bash
+make health        # Check health of all services
+make status        # Show detailed service status
+make ps            # Show running containers
+make test-api      # Test API endpoints
+```
+
+### Production
+```bash
+make prod          # Start in production mode (validates config)
+make clean         # Clean up all containers and volumes
+make rebuild       # Rebuild and restart everything
+```
+
+### Utilities
+```bash
+make urls              # Show all service URLs
+make version           # Show version info
+make generate-jwt-secret  # Generate secure JWT secret
+```
+
+See `make help` for the complete list of commands.
 
 5. **Access the application**
    - **Web UI**: http://localhost:3000
@@ -743,6 +854,29 @@ After the one-time license acceptance, everything is fully automated.
 
 ## 🔧 Development
 
+### Using Make Commands
+```bash
+# Development mode (with logs)
+make dev
+
+# View logs
+make logs-api
+make logs-foundry
+make logs-json  # Pretty formatted JSON logs
+
+# Shell access
+make shell-api
+make shell-db
+
+# Rebuild after code changes
+make rebuild
+
+# Full reset (wipe database + volumes)
+make clean
+make up
+```
+
+### Manual Docker Commands
 ```bash
 # View logs
 docker compose logs -f api
@@ -751,9 +885,266 @@ docker compose logs -f foundry
 # Rebuild after code changes
 docker compose up -d --build
 
-# Full reset (wipe database + volumes)
+# Full reset
 docker compose down -v
 docker compose up -d --build
+```
+
+### Database Management
+```bash
+# Backup database
+make backup
+
+# Apply migrations
+make migrate-up
+
+# Reset database
+make db-reset
+```
+
+---
+
+## 📚 Documentation
+
+### For Dungeon Masters
+- **[Quick Start Guide](docs/QUICK_START.md)** - Get started in 5 minutes
+- **[DM Guide](docs/DM_GUIDE.md)** - Comprehensive guide for running campaigns
+- **[Best Practices](#)** - Tips for effective AI-powered sessions
+
+### For Developers
+- **[Architecture Overview](PLANNING.md)** - System design and architecture
+- **[Phase 1-6 Documentation](docs/)** - Implementation details
+- **[API Documentation](#)** - API reference (coming soon)
+- **[Database Schema](#-database-schema)** - Database structure
+
+### For System Administrators
+- **[Makefile Reference](docs/MAKEFILE_REFERENCE.md)** - Complete command reference
+- **[Environment Configuration](docs/ENV_CONFIGURATION.md)** - Configuration guide
+- **[Phase 6 Quick Reference](docs/PHASE_6_QUICK_REFERENCE.md)** - Production features
+- **[Security Guidelines](docs/SECURITY_GUIDELINES.md)** - Security best practices
+
+### Implementation Documentation
+- **[Phase 1: Foundation](docs/PHASE_1_FOUNDATION.md)** - Core infrastructure
+- **[Phase 2: AI Integration](docs/PHASE_2_AI_INTEGRATION.md)** - LLM integration
+- **[Phase 3: Content Generation](docs/PHASE_3_CONTENT_GENERATION.md)** - Maps, tokens, NPCs
+- **[Phase 4: Foundry Integration](docs/PHASE_4_FOUNDRY_VTT_INTEGRATION.md)** - Foundry sync
+- **[Phase 5: Session Continuity](docs/PHASE_5_SESSION_RESULTS_AND_CONTINUITY.md)** - Session tracking
+- **[Phase 6: Production Hardening](docs/PHASE_6_IMPLEMENTATION_COMPLETE.md)** - Security & optimization
+
+---
+
+## 🏭 Production Deployment
+
+### Prerequisites
+- Docker & Docker Compose
+- Valid Foundry VTT license
+- Groq API key (or OpenAI API key)
+- SSL certificates (for HTTPS)
+
+### Production Checklist
+
+1. **Generate Secure JWT Secret**
+   ```bash
+   make generate-jwt-secret
+   # Copy output to .env
+   ```
+
+2. **Configure Environment**
+   ```bash
+   NODE_ENV=production
+   JWT_SECRET=<your-generated-secret>
+   CORS_ORIGIN=https://yourdomain.com
+   LOG_LEVEL=info
+   ```
+
+3. **Deploy with Production Mode**
+   ```bash
+   make prod
+   ```
+
+4. **Apply Database Indexes**
+   ```bash
+   make migrate-up
+   ```
+
+5. **Setup Automated Backups**
+   ```bash
+   # Add to crontab
+   0 2 * * * cd /path/to/Lazy-Foundry-VTT && make backup
+   ```
+
+6. **Monitor Services**
+   ```bash
+   make health
+   make status
+   ```
+
+### Health Checks
+
+```bash
+# Liveness check
+curl http://localhost:3001/health/live
+
+# Readiness check
+curl http://localhost:3001/health/ready
+
+# Metrics
+curl http://localhost:3001/health/metrics
+```
+
+### Monitoring
+
+- **Structured Logs**: All logs are JSON formatted
+- **Correlation IDs**: Every request has a unique x-request-id
+- **Health Endpoints**: Ready for Prometheus scraping
+- **Container Health**: Docker health checks enabled
+
+---
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**Services won't start?**
+```bash
+make clean
+make install
+```
+
+**Container name conflicts?**
+```bash
+make clean  # Removes old containers
+make up
+```
+
+**Foundry not syncing?**
+```bash
+# Check Foundry connection
+make health
+
+# View sync errors
+make logs-api | grep sync
+
+# Restart Foundry
+make restart
+```
+
+**Database errors?**
+```bash
+# Check database
+make shell-db
+
+# Reset database
+make db-reset
+```
+
+**API errors?**
+```bash
+# View detailed logs
+make logs-api
+
+# View last 50 lines
+make quick-logs
+
+# Pretty formatted JSON
+make logs-json
+```
+
+**Permission issues?**
+```bash
+make fix-permissions
+```
+
+### Debug Mode
+
+Enable debug logging:
+```bash
+# In .env
+LOG_LEVEL=debug
+
+# Restart
+make restart
+```
+
+### Getting Help
+
+1. Check logs: `make logs-api`
+2. Check health: `make health`
+3. Check status: `make status`
+4. View all commands: `make help`
+
+Every error includes a `requestId` for tracking!
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly (`make health`)
+5. Submit a pull request
+
+### Development Setup
+
+```bash
+# Clone your fork
+git clone <your-fork-url>
+cd Lazy-Foundry-VTT
+
+# Install and run
+make install
+
+# Start development
+make dev
+```
+
+---
+
+## 📄 License
+
+MIT License - See LICENSE file for details
+
+---
+
+## 🙏 Acknowledgments
+
+- **Foundry VTT** - Amazing VTT platform
+- **Groq** - Fast LLM inference
+- **rot-js** - Procedural generation library
+- **felddy/foundryvtt-docker** - Foundry Docker image
+- **DiceBear** - Avatar generation API
+
+---
+
+## 📞 Support
+
+- **Documentation**: Check `/docs` folder
+- **Issues**: GitHub Issues
+- **Health Check**: `make health`
+- **Logs**: `make logs-api`
+
+---
+
+## 🎯 Project Status
+
+**Phase 6 Complete** - Production Ready! ✅
+
+- ✅ Core features implemented
+- ✅ AI integration complete
+- ✅ Foundry VTT sync working
+- ✅ Session continuity functional
+- ✅ Production hardening complete
+- ✅ Comprehensive documentation
+- ✅ Easy deployment with Make
+
+**Ready for real campaigns!** 🎲
+
+---
+
+Made with ❤️ for Dungeon Masters who want to spend more time gaming and less time prepping.
 
 # Connect to database
 docker compose exec db psql -U postgres -d lazy_foundry

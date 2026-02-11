@@ -1,9 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { body, validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { AppDataSource } from '../config/database';
 import { User } from '../entities/User';
+import { validateEmail, validatePassword, handleValidationErrors, validateString } from '../middleware/validation';
+import { generateToken, generateRefreshToken, refreshToken as refreshTokenHandler, authMiddleware, AuthRequest } from '../middleware/auth';
+import { AppError } from '../middleware/errorHandler';
+import { logInfo, logWarn } from '../utils/logger';
 
 const router = Router();
 
@@ -12,17 +14,12 @@ const userRepository = () => AppDataSource.getRepository(User);
 router.post(
   '/register',
   [
-    body('email').isEmail().normalizeEmail(),
-    body('username').isLength({ min: 3, max: 30 }).trim(),
-    body('password').isLength({ min: 6 }),
+    validateEmail,
+    validateString('username', 3, 30),
+    validatePassword,
+    handleValidationErrors,
   ],
   async (req: Request, res: Response): Promise<void> => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      res.status(400).json({ errors: errors.array() });
-      return;
-    }
-
     const { email, username, password } = req.body;
 
     try {
@@ -45,11 +42,10 @@ router.post(
 
       await userRepository().save(user);
 
-      const token = jwt.sign(
-        { userId: user.id, email: user.email },
-        process.env.JWT_SECRET || 'default-secret',
-        { expiresIn: '7d' }
-      );
+      const token = generateToken(user.id, user.email);
+      const refreshToken = generateRefreshToken(user.id, user.email);
+
+      logInfo('User registered', { userId: user.id, email: user.email });
 
       res.status(201).json({
         user: {
@@ -58,10 +54,11 @@ router.post(
           username: user.username,
         },
         token,
+        refreshToken,
       });
     } catch (error) {
-      console.error('Registration error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      logWarn('Registration error', { error: (error as Error).message });
+      throw new AppError(500, 'Registration failed');
     }
   }
 );
@@ -69,22 +66,17 @@ router.post(
 router.post(
   '/login',
   [
-    body('email').isEmail().normalizeEmail(),
-    body('password').notEmpty(),
+    validateEmail,
+    handleValidationErrors,
   ],
   async (req: Request, res: Response): Promise<void> => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      res.status(400).json({ errors: errors.array() });
-      return;
-    }
-
     const { email, password } = req.body;
 
     try {
       const user = await userRepository().findOne({ where: { email } });
 
       if (!user) {
+        logWarn('Login attempt with invalid email', { email });
         res.status(401).json({ error: 'Invalid credentials' });
         return;
       }
@@ -92,15 +84,15 @@ router.post(
       const isValidPassword = await bcrypt.compare(password, user.passwordHash);
 
       if (!isValidPassword) {
+        logWarn('Login attempt with invalid password', { userId: user.id });
         res.status(401).json({ error: 'Invalid credentials' });
         return;
       }
 
-      const token = jwt.sign(
-        { userId: user.id, email: user.email },
-        process.env.JWT_SECRET || 'default-secret',
-        { expiresIn: '7d' }
-      );
+      const token = generateToken(user.id, user.email);
+      const refreshToken = generateRefreshToken(user.id, user.email);
+
+      logInfo('User logged in', { userId: user.id });
 
       res.json({
         user: {
@@ -109,32 +101,21 @@ router.post(
           username: user.username,
         },
         token,
+        refreshToken,
       });
     } catch (error) {
-      console.error('Login error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      logWarn('Login error', { error: (error as Error).message });
+      throw new AppError(500, 'Login failed');
     }
   }
 );
 
-router.get('/me', async (req: Request, res: Response): Promise<void> => {
-  const authHeader = req.headers.authorization;
+router.post('/refresh', refreshTokenHandler);
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'No token provided' });
-    return;
-  }
-
-  const token = authHeader.split(' ')[1];
-
+router.get('/me', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'default-secret'
-    ) as { userId: string };
-
     const user = await userRepository().findOne({
-      where: { id: decoded.userId },
+      where: { id: req.userId! },
     });
 
     if (!user) {
@@ -147,8 +128,8 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
       email: user.email,
       username: user.username,
     });
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
+  } catch (error) {
+    throw new AppError(500, 'Failed to fetch user');
   }
 });
 
