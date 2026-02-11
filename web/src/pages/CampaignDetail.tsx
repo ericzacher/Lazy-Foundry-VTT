@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import type { Campaign, Session, NPC, MapData } from '../types';
+import type { Campaign, Session, NPC, MapData, TimelineEvent, NPCStatus } from '../types';
 import { SessionStatus } from '../types';
-import { LoadingSpinner, LoadingSkeleton, ErrorAlert } from '../components/LoadingSpinner';
+import { ErrorAlert } from '../components/LoadingSpinner';
 
 export function CampaignDetail() {
   const { id } = useParams<{ id: string }>();
@@ -19,8 +19,10 @@ export function CampaignDetail() {
   const [generatingTokens, setGeneratingTokens] = useState<Set<string>>(new Set());
   const [syncingToFoundry, setSyncingToFoundry] = useState<Set<string>>(new Set());
   const [foundryStatus, setFoundryStatus] = useState<'unknown' | 'connected' | 'disconnected'>('unknown');
+  const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
+  const [npcStatuses, setNpcStatuses] = useState<Record<string, NPCStatus>>({});
   const [showCreateSessionModal, setShowCreateSessionModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'sessions' | 'lore' | 'npcs' | 'maps'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'lore' | 'npcs' | 'maps' | 'timeline'>('sessions');
   const [error, setError] = useState<string>('');
 
   const loadCampaign = useCallback(async () => {
@@ -62,14 +64,34 @@ export function CampaignDetail() {
     }
   }, [id]);
 
+  const loadTimeline = useCallback(async () => {
+    try {
+      const { events } = await api.getCampaignTimeline(id!);
+      setTimelineEvents(events);
+    } catch (error) {
+      console.error('Failed to load timeline:', error);
+    }
+  }, [id]);
+
+  const loadNPCStatuses = useCallback(async () => {
+    try {
+      const { statuses } = await api.getCampaignNPCStatuses(id!);
+      setNpcStatuses(statuses);
+    } catch (error) {
+      console.error('Failed to load NPC statuses:', error);
+    }
+  }, [id]);
+
   useEffect(() => {
     if (id) {
       loadCampaign();
       loadSessions();
       loadNPCs();
       loadMaps();
+      loadTimeline();
+      loadNPCStatuses();
     }
-  }, [id, loadCampaign, loadSessions, loadNPCs, loadMaps]);
+  }, [id, loadCampaign, loadSessions, loadNPCs, loadMaps, loadTimeline, loadNPCStatuses]);
 
   useEffect(() => {
     const checkFoundryStatus = async () => {
@@ -346,6 +368,16 @@ export function CampaignDetail() {
           >
             Maps ({maps.length})
           </button>
+          <button
+            onClick={() => setActiveTab('timeline')}
+            className={`pb-3 px-1 border-b-2 ${
+              activeTab === 'timeline'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-gray-400 hover:text-white'
+            }`}
+          >
+            Timeline ({timelineEvents.length})
+          </button>
         </div>
 
         {/* Sessions Tab */}
@@ -593,6 +625,28 @@ export function CampaignDetail() {
                             {npc.role && (
                               <span className="text-sm text-purple-400">{npc.role}</span>
                             )}
+                            {/* NPC Status Badge */}
+                            {npcStatuses[npc.name] && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                <span className={`text-xs px-2 py-0.5 rounded ${
+                                  npcStatuses[npc.name].status === 'alive' ? 'bg-green-500/20 text-green-400' :
+                                  npcStatuses[npc.name].status === 'dead' ? 'bg-red-500/20 text-red-400' :
+                                  'bg-gray-500/20 text-gray-400'
+                                }`}>
+                                  {npcStatuses[npc.name].status}
+                                </span>
+                                {npcStatuses[npc.name].loyalty && (
+                                  <span className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                                    {npcStatuses[npc.name].loyalty}
+                                  </span>
+                                )}
+                                {npcStatuses[npc.name].alignment && (
+                                  <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-400">
+                                    {npcStatuses[npc.name].alignment}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                           <div className="flex flex-col gap-1 items-end">
                             {/* Foundry Sync Status */}
@@ -797,16 +851,18 @@ export function CampaignDetail() {
 
                 {map.details && (
                   <div className="space-y-4">
-                    {map.details.atmosphere && (
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-400 mb-1">Atmosphere</h4>
-                        <p className="text-gray-300 text-sm">
-                          {typeof map.details.atmosphere === 'string'
-                            ? map.details.atmosphere
-                            : (map.details.atmosphere as { description?: string }).description || JSON.stringify(map.details.atmosphere)}
-                        </p>
-                      </div>
-                    )}
+                    {map.details.atmosphere ? (() => {
+                      const atmo = map.details!.atmosphere;
+                      const text = typeof atmo === 'string'
+                        ? atmo
+                        : (atmo as { description?: string }).description || JSON.stringify(atmo);
+                      return (
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-400 mb-1">Atmosphere</h4>
+                          <p className="text-gray-300 text-sm">{String(text)}</p>
+                        </div>
+                      );
+                    })() : null}
 
                     {map.details.rooms && map.details.rooms.length > 0 && (
                       <div>
@@ -886,6 +942,82 @@ export function CampaignDetail() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Timeline Tab */}
+        {activeTab === 'timeline' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold">Campaign Timeline</h2>
+            </div>
+
+            {timelineEvents.length === 0 ? (
+              <div className="text-center py-12 bg-gray-800 rounded-lg border border-gray-700">
+                <p className="text-gray-400">No timeline events yet. Finalize sessions to build your campaign timeline.</p>
+              </div>
+            ) : (
+              <div className="relative">
+                {/* Timeline line */}
+                <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-700" />
+
+                <div className="space-y-6">
+                  {timelineEvents.map((event) => (
+                    <div key={event.id} className="relative pl-12">
+                      {/* Timeline dot */}
+                      <div className={`absolute left-2.5 top-2 w-3 h-3 rounded-full border-2 ${
+                        event.significance === 'critical' ? 'bg-red-500 border-red-400' :
+                        event.significance === 'major' ? 'bg-yellow-500 border-yellow-400' :
+                        'bg-gray-500 border-gray-400'
+                      }`} />
+
+                      <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <div className="flex justify-between items-start mb-2">
+                          <h3 className="font-medium">{event.title}</h3>
+                          <div className="flex gap-2 flex-shrink-0">
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              event.significance === 'critical' ? 'bg-red-500/20 text-red-400' :
+                              event.significance === 'major' ? 'bg-yellow-500/20 text-yellow-400' :
+                              'bg-gray-500/20 text-gray-400'
+                            }`}>
+                              {event.significance}
+                            </span>
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              event.eventType === 'combat' ? 'bg-red-500/20 text-red-400' :
+                              event.eventType === 'dialogue' ? 'bg-blue-500/20 text-blue-400' :
+                              event.eventType === 'discovery' ? 'bg-green-500/20 text-green-400' :
+                              event.eventType === 'death' ? 'bg-gray-500/20 text-gray-300' :
+                              event.eventType === 'political' ? 'bg-purple-500/20 text-purple-400' :
+                              event.eventType === 'travel' ? 'bg-cyan-500/20 text-cyan-400' :
+                              'bg-gray-500/20 text-gray-400'
+                            }`}>
+                              {event.eventType}
+                            </span>
+                          </div>
+                        </div>
+
+                        {event.description && (
+                          <p className="text-gray-400 text-sm mb-2">{event.description}</p>
+                        )}
+
+                        <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                          <span>{event.eventDate}</span>
+                          {event.sessionNumber && (
+                            <span>Session {event.sessionNumber}</span>
+                          )}
+                          {event.peopleInvolved && event.peopleInvolved.length > 0 && (
+                            <span>People: {event.peopleInvolved.join(', ')}</span>
+                          )}
+                          {event.locations && event.locations.length > 0 && (
+                            <span>Locations: {event.locations.join(', ')}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -1017,7 +1149,6 @@ const MAP_TYPES = [
 ];
 
 function MapGenerationForm({
-  campaignId,
   generating,
   onGenerate,
 }: {

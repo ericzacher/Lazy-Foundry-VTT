@@ -16,6 +16,7 @@ import {
   generateMapDescription,
   generateDetailedEncounters,
 } from '../services/ai';
+import { generateContinuityScenario } from '../services/sessionContinuity';
 import { generateMap, saveMapImage } from '../services/mapGenerator';
 import {
   generateTokenFromDescription,
@@ -619,6 +620,10 @@ router.post(
       );
 
       // Create token entity
+      // Map null color values to undefined for TypeORM compatibility
+      const vision = tokenData.foundryData.vision
+        ? { ...tokenData.foundryData.vision, color: tokenData.foundryData.vision.color ?? undefined }
+        : undefined;
       const token = tokenRepository().create({
         campaignId: campaign.id,
         npcId: npc.id,
@@ -630,7 +635,7 @@ router.post(
         width: tokenData.width,
         height: tokenData.height,
         scale: 1.0,
-        vision: tokenData.foundryData.vision,
+        vision,
         detection: tokenData.foundryData.detection,
         foundryData: tokenData.foundryData,
       });
@@ -689,6 +694,63 @@ router.get(
     } catch (error) {
       console.error('Get tokens error:', error);
       res.status(500).json({ error: 'Failed to retrieve tokens' });
+    }
+  }
+);
+
+// Generate continuity-aware scenario
+router.post(
+  '/sessions/:id/continuity-scenario',
+  [
+    param('id').isUUID(),
+    body('description').notEmpty().isString(),
+    body('partyLevel').optional().isInt({ min: 1, max: 20 }),
+    body('partyComposition').optional().isString(),
+  ],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const session = await sessionRepository().findOne({
+        where: { id: req.params.id },
+        relations: ['campaign'],
+      });
+
+      if (!session) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+
+      if (session.campaign.ownerId !== req.userId) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+
+      const {
+        description,
+        partyLevel = 1,
+        partyComposition = 'Mixed party',
+      } = req.body;
+
+      const scenario = await generateContinuityScenario(
+        session.campaignId,
+        description,
+        partyLevel,
+        partyComposition
+      );
+
+      // Save scenario to session
+      session.scenario = scenario as unknown as Record<string, unknown>;
+      await sessionRepository().save(session);
+
+      res.json({ session, scenario });
+    } catch (error) {
+      console.error('Generate continuity scenario error:', error);
+      res.status(500).json({ error: 'Failed to generate continuity scenario' });
     }
   }
 );

@@ -52,6 +52,72 @@ export interface SessionResult {
   worldChanges?: Record<string, unknown>;
   unfinishedThreads: string[];
   capturedAt: string;
+  // Phase 5 fields
+  plotAdvancement?: string;
+  characterDevelopment?: Record<string, unknown>;
+  durationMinutes?: number;
+  xpAwarded?: number;
+  lootAwarded?: Record<string, unknown>;
+  deathCount?: number;
+  captureMethod?: string;
+  transcript?: string;
+  mood?: string;
+}
+
+export interface NPCHistoryEntry {
+  id: string;
+  npcId: string;
+  sessionId: string;
+  alignmentBefore?: string;
+  alignmentAfter?: string;
+  loyaltyBefore?: string;
+  loyaltyAfter?: string;
+  statusBefore?: string;
+  statusAfter?: string;
+  relationshipChange?: string;
+  notes?: string;
+  eventsInvolved?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TimelineEvent {
+  id: string;
+  campaignId: string;
+  sessionId?: string;
+  eventDate: string;
+  sessionNumber?: number;
+  title: string;
+  description?: string;
+  eventType: string;
+  significance: string;
+  peopleInvolved?: string[];
+  locations?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NPCStatus {
+  npcId: string;
+  name: string;
+  alignment: string | null;
+  loyalty: string | null;
+  status: string;
+  relationshipSummary: string | null;
+}
+
+export interface CampaignSummary {
+  sessionsCompleted: number;
+  totalSessions: number;
+  timelineEvents: Array<{
+    session: number | null;
+    title: string;
+    description: string | null;
+    type: string;
+    significance: string;
+  }>;
+  npcStatuses: Record<string, NPCStatus>;
+  majorPlotPoints: string[];
 }
 
 export interface AuthResponse {

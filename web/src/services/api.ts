@@ -1,4 +1,4 @@
-import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData } from '../types';
+import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData, CampaignSummary, TimelineEvent, NPCHistoryEntry, NPCStatus } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -310,6 +310,63 @@ class ApiService {
 
   async getFoundryActors(): Promise<{ actors: unknown[] }> {
     return this.request('/api/foundry/actors');
+  }
+
+  // Phase 5: Session Continuity
+
+  async autoSummarizeSession(
+    sessionId: string,
+    transcript: string,
+    partyComposition?: string
+  ): Promise<{ summary: unknown; result: SessionResult }> {
+    return this.request(`/api/sessions/${sessionId}/auto-summarize`, {
+      method: 'POST',
+      body: JSON.stringify({ transcript, partyComposition }),
+    });
+  }
+
+  async getCampaignSummary(campaignId: string): Promise<{ summary: CampaignSummary }> {
+    return this.request(`/api/campaigns/${campaignId}/summary`);
+  }
+
+  async getCampaignTimeline(campaignId: string): Promise<{ events: TimelineEvent[] }> {
+    return this.request(`/api/campaigns/${campaignId}/timeline`);
+  }
+
+  async addTimelineEvent(
+    campaignId: string,
+    data: Partial<TimelineEvent>
+  ): Promise<{ event: TimelineEvent }> {
+    return this.request(`/api/campaigns/${campaignId}/timeline`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async trackNPCHistory(
+    sessionId: string,
+    data: Partial<NPCHistoryEntry> & { npcId: string }
+  ): Promise<{ history: NPCHistoryEntry }> {
+    return this.request(`/api/sessions/${sessionId}/npc-history`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getCampaignNPCStatuses(
+    campaignId: string
+  ): Promise<{ statuses: Record<string, NPCStatus> }> {
+    return this.request(`/api/campaigns/${campaignId}/npc-status`);
+  }
+
+  async generateContinuityScenario(
+    sessionId: string,
+    data: { description: string; partyLevel?: number; partyComposition?: string }
+  ): Promise<{ session: Session; scenario: unknown }> {
+    return this.request(`/api/generate/sessions/${sessionId}/continuity-scenario`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   }
 }
 

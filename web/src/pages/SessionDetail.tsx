@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import type { Session, SessionResult } from '../types';
 import { SessionStatus } from '../types';
-import { LoadingSpinner, LoadingSkeleton, ErrorAlert } from '../components/LoadingSpinner';
+import { LoadingSpinner, ErrorAlert } from '../components/LoadingSpinner';
 
 interface Scenario {
   title?: string;
@@ -129,7 +129,48 @@ export function SessionDetail() {
     );
   }
 
-  const scenario = session.scenario as Scenario | undefined;
+  let scenario = session.scenario as Scenario | undefined;
+
+  // Ensure encounters is an array (AI might return an object)
+  if (scenario && scenario.encounters && !Array.isArray(scenario.encounters)) {
+    scenario.encounters = [scenario.encounters];
+  }
+
+  // Ensure objectives is an array
+  if (scenario && scenario.objectives && !Array.isArray(scenario.objectives)) {
+    scenario.objectives = [scenario.objectives];
+  }
+
+  // Ensure rewards is an array and contains strings
+  if (scenario && scenario.rewards && Array.isArray(scenario.rewards)) {
+    scenario.rewards = scenario.rewards.map(r => 
+      typeof r === 'string' ? r : (r as any).name || JSON.stringify(r)
+    );
+  }
+
+  // Ensure twists is an array and contains strings
+  if (scenario && scenario.twists && Array.isArray(scenario.twists)) {
+    scenario.twists = scenario.twists.map(t =>
+      typeof t === 'string' ? t : (t as any).name || JSON.stringify(t)
+    );
+  }
+
+  // Ensure objectives contains strings
+  if (scenario && scenario.objectives && Array.isArray(scenario.objectives)) {
+    scenario.objectives = scenario.objectives.map(o =>
+      typeof o === 'string' ? o : (o as any).name || JSON.stringify(o)
+    );
+  }
+
+  // Ensure encounters have string enemies
+  if (scenario && scenario.encounters && Array.isArray(scenario.encounters)) {
+    scenario.encounters = scenario.encounters.map(enc => ({
+      ...enc,
+      enemies: Array.isArray(enc.enemies)
+        ? enc.enemies.map(e => typeof e === 'string' ? e : (e as any).name || JSON.stringify(e))
+        : []
+    }));
+  }
 
   return (
     <div className="min-h-screen">
@@ -329,7 +370,11 @@ export function SessionDetail() {
                         {encounter.enemies && encounter.enemies.length > 0 && (
                           <div className="mt-2 text-sm">
                             <span className="text-gray-500">Enemies:</span>{' '}
-                            <span className="text-red-400">{encounter.enemies.join(', ')}</span>
+                            <span className="text-red-400">
+                              {encounter.enemies
+                                .filter(e => typeof e === 'string')
+                                .join(', ')}
+                            </span>
                           </div>
                         )}
                       </div>
@@ -412,8 +457,33 @@ export function SessionDetail() {
                     </button>
                     <span className="text-xs text-gray-500">
                       Captured: {new Date(sessionResult.capturedAt).toLocaleString()}
+                      {sessionResult.captureMethod === 'ai_summarized' && ' (AI)'}
                     </span>
                   </div>
+                </div>
+
+                {/* Meta badges */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {sessionResult.mood && (
+                    <span className="px-2 py-1 bg-purple-500/20 text-purple-400 rounded text-xs border border-purple-500/30">
+                      {sessionResult.mood}
+                    </span>
+                  )}
+                  {sessionResult.durationMinutes && (
+                    <span className="px-2 py-1 bg-gray-700 text-gray-300 rounded text-xs">
+                      {sessionResult.durationMinutes} min
+                    </span>
+                  )}
+                  {sessionResult.xpAwarded != null && sessionResult.xpAwarded > 0 && (
+                    <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded text-xs border border-yellow-500/30">
+                      {sessionResult.xpAwarded} XP
+                    </span>
+                  )}
+                  {sessionResult.deathCount != null && sessionResult.deathCount > 0 && (
+                    <span className="px-2 py-1 bg-red-500/20 text-red-400 rounded text-xs border border-red-500/30">
+                      {sessionResult.deathCount} death{sessionResult.deathCount > 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
 
                 <div className="space-y-4">
@@ -421,6 +491,13 @@ export function SessionDetail() {
                     <div>
                       <h3 className="text-sm font-medium text-gray-400 mb-1">Summary</h3>
                       <p className="text-gray-300 whitespace-pre-line">{sessionResult.summary}</p>
+                    </div>
+                  )}
+
+                  {sessionResult.plotAdvancement && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-400 mb-1">Plot Advancement</h3>
+                      <p className="text-gray-300 whitespace-pre-line">{sessionResult.plotAdvancement}</p>
                     </div>
                   )}
 
@@ -493,6 +570,20 @@ export function SessionDetail() {
                       </ul>
                     </div>
                   )}
+
+                  {sessionResult.lootAwarded && Object.keys(sessionResult.lootAwarded).length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-400 mb-1">Loot Awarded</h3>
+                      <div className="space-y-1">
+                        {Object.entries(sessionResult.lootAwarded).map(([item, detail], i) => (
+                          <div key={i} className="text-gray-300 flex gap-2">
+                            <span className="text-yellow-400">*</span>
+                            <span className="font-medium">{item}:</span> {String(detail)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -538,8 +629,20 @@ function FinalizeSessionForm({ sessionId, existing, onFinalized, onCancel }: Fin
     existing?.worldChanges ? JSON.stringify(existing.worldChanges, null, 2) : '{\n  \n}'
   );
   const [unfinishedThreads, setUnfinishedThreads] = useState<string[]>(existing?.unfinishedThreads || ['']);
+  // Phase 5 fields
+  const [transcript, setTranscript] = useState(existing?.transcript || '');
+  const [plotAdvancement, setPlotAdvancement] = useState(existing?.plotAdvancement || '');
+  const [mood, setMood] = useState(existing?.mood || '');
+  const [durationMinutes, setDurationMinutes] = useState(existing?.durationMinutes?.toString() || '');
+  const [xpAwarded, setXpAwarded] = useState(existing?.xpAwarded?.toString() || '');
+  const [deathCount, setDeathCount] = useState(existing?.deathCount?.toString() || '0');
+  const [lootText, setLootText] = useState(
+    existing?.lootAwarded ? JSON.stringify(existing.lootAwarded, null, 2) : '{\n  \n}'
+  );
+
   const [submitting, setSubmitting] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
+  const [autoSummarizing, setAutoSummarizing] = useState(false);
   const [error, setError] = useState('');
 
   const addListItem = (setter: React.Dispatch<React.SetStateAction<string[]>>) => {
@@ -586,12 +689,37 @@ function FinalizeSessionForm({ sessionId, existing, onFinalized, onCancel }: Fin
     }
   };
 
+  const handleAutoSummarizeFromTranscript = async () => {
+    if (!transcript.trim()) {
+      setError('Enter a transcript or session notes first.');
+      return;
+    }
+
+    setAutoSummarizing(true);
+    setError('');
+    try {
+      const { summary: aiData } = await api.autoSummarizeSession(sessionId, transcript);
+      const data = aiData as Record<string, unknown>;
+      if (data.summary) setSummary(String(data.summary));
+      if (data.keyEvents && Array.isArray(data.keyEvents)) setEvents(data.keyEvents as string[]);
+      if (data.npcInteractions) setNpcInteractionsText(JSON.stringify(data.npcInteractions, null, 2));
+      if (data.worldChanges) setWorldChangesText(JSON.stringify(data.worldChanges, null, 2));
+      if (data.plotAdvancement) setPlotAdvancement(String(data.plotAdvancement));
+      if (data.unresolvedThreads && Array.isArray(data.unresolvedThreads)) setUnfinishedThreads(data.unresolvedThreads as string[]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to auto-summarize');
+    } finally {
+      setAutoSummarizing(false);
+    }
+  };
+
   const handleSubmit = async () => {
     setSubmitting(true);
     setError('');
 
     let npcInteractions: Record<string, unknown> = {};
     let worldChanges: Record<string, unknown> = {};
+    let lootAwarded: Record<string, unknown> = {};
 
     try {
       npcInteractions = JSON.parse(npcInteractionsText);
@@ -610,6 +738,14 @@ function FinalizeSessionForm({ sessionId, existing, onFinalized, onCancel }: Fin
     }
 
     try {
+      lootAwarded = JSON.parse(lootText);
+    } catch {
+      setError('Loot Awarded must be valid JSON');
+      setSubmitting(false);
+      return;
+    }
+
+    try {
       const response = await api.finalizeSession(sessionId, {
         summary: summary.trim() || undefined,
         events: events.filter(e => e.trim()),
@@ -617,6 +753,15 @@ function FinalizeSessionForm({ sessionId, existing, onFinalized, onCancel }: Fin
         npcInteractions,
         worldChanges,
         unfinishedThreads: unfinishedThreads.filter(t => t.trim()),
+        // Phase 5 fields
+        plotAdvancement: plotAdvancement.trim() || undefined,
+        mood: mood || undefined,
+        durationMinutes: durationMinutes ? parseInt(durationMinutes) : undefined,
+        xpAwarded: xpAwarded ? parseInt(xpAwarded) : undefined,
+        deathCount: deathCount ? parseInt(deathCount) : undefined,
+        lootAwarded: Object.keys(lootAwarded).length > 0 ? lootAwarded : undefined,
+        transcript: transcript.trim() || undefined,
+        captureMethod: autoSummarizing ? 'ai_summarized' : 'manual',
       });
 
       const result = (response as { result: SessionResult }).result;
@@ -693,6 +838,82 @@ function FinalizeSessionForm({ sessionId, existing, onFinalized, onCancel }: Fin
       )}
 
       <div className="space-y-6">
+        {/* Transcript / Auto-Summarize */}
+        <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
+          <div className="flex justify-between items-center mb-2">
+            <label className="text-sm font-medium text-gray-300">Session Transcript / Notes</label>
+            <button
+              type="button"
+              onClick={handleAutoSummarizeFromTranscript}
+              disabled={autoSummarizing || !transcript.trim()}
+              className="px-3 py-1 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded disabled:opacity-50"
+            >
+              {autoSummarizing ? 'Summarizing...' : 'Auto-Summarize with AI'}
+            </button>
+          </div>
+          <textarea
+            value={transcript}
+            onChange={e => setTranscript(e.target.value)}
+            placeholder="Paste your session transcript, DM notes, or a detailed description of what happened. The AI will extract events, NPC interactions, world changes, and plot advancement from this."
+            rows={6}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Tip: Paste session notes here and click Auto-Summarize to populate all fields below automatically.
+          </p>
+        </div>
+
+        {/* Session Metadata Row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <label className="text-sm font-medium text-gray-400 mb-1 block">Mood</label>
+            <select
+              value={mood}
+              onChange={e => setMood(e.target.value)}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+            >
+              <option value="">Select mood...</option>
+              <option value="intense">Intense</option>
+              <option value="comedic">Comedic</option>
+              <option value="dramatic">Dramatic</option>
+              <option value="mixed">Mixed</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-400 mb-1 block">Duration (min)</label>
+            <input
+              type="number"
+              value={durationMinutes}
+              onChange={e => setDurationMinutes(e.target.value)}
+              placeholder="180"
+              min={0}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-400 mb-1 block">XP Awarded</label>
+            <input
+              type="number"
+              value={xpAwarded}
+              onChange={e => setXpAwarded(e.target.value)}
+              placeholder="300"
+              min={0}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-400 mb-1 block">Deaths</label>
+            <input
+              type="number"
+              value={deathCount}
+              onChange={e => setDeathCount(e.target.value)}
+              placeholder="0"
+              min={0}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+            />
+          </div>
+        </div>
+
         {/* Summary */}
         <div>
           <div className="flex justify-between items-center mb-2">
@@ -703,7 +924,7 @@ function FinalizeSessionForm({ sessionId, existing, onFinalized, onCancel }: Fin
               disabled={summarizing}
               className="text-xs text-purple-400 hover:text-purple-300 disabled:opacity-50"
             >
-              {summarizing ? 'Generating...' : '✨ AI Summarize'}
+              {summarizing ? 'Generating...' : 'AI Summarize from Events'}
             </button>
           </div>
           <textarea
@@ -711,6 +932,18 @@ function FinalizeSessionForm({ sessionId, existing, onFinalized, onCancel }: Fin
             onChange={e => setSummary(e.target.value)}
             placeholder="Write or generate a summary of what happened this session..."
             rows={4}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+          />
+        </div>
+
+        {/* Plot Advancement */}
+        <div>
+          <label className="text-sm font-medium text-gray-400 mb-2 block">Plot Advancement</label>
+          <textarea
+            value={plotAdvancement}
+            onChange={e => setPlotAdvancement(e.target.value)}
+            placeholder="How did the main storyline advance this session?"
+            rows={3}
             className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
           />
         </div>
@@ -744,6 +977,20 @@ function FinalizeSessionForm({ sessionId, existing, onFinalized, onCancel }: Fin
             value={worldChangesText}
             onChange={e => setWorldChangesText(e.target.value)}
             placeholder='{"Location/Faction": "What changed"}'
+            rows={4}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm font-mono"
+          />
+        </div>
+
+        {/* Loot Awarded */}
+        <div>
+          <label className="text-sm font-medium text-gray-400 mb-2 block">
+            Loot Awarded (JSON)
+          </label>
+          <textarea
+            value={lootText}
+            onChange={e => setLootText(e.target.value)}
+            placeholder='{"Sword of Flames": "+1d6 fire damage", "Gold": 250}'
             rows={4}
             className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm font-mono"
           />

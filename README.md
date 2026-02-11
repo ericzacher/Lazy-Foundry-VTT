@@ -136,9 +136,230 @@ On first boot, the Foundry container will:
    - **API**: http://localhost:3001
    - **Foundry VTT**: http://localhost:30000
 
-## 🧪 End-to-End Test Workflow
+## 🎲 DM Guide: Creating Your First Campaign
 
-Complete walkthrough from user registration to content appearing in Foundry VTT. All steps use `curl` and `python3` (for JSON parsing) — both are pre-installed on most Linux/macOS systems.
+This section walks through the complete workflow for a Dungeon Master to create and run a campaign using Lazy Foundry VTT.
+
+### Overview: Campaign Creation Flow
+
+```
+1. Create Account (Register/Login)
+2. Create Campaign (Set theme, setting, tone)
+3. Generate World Lore (AI creates world history, factions, locations)
+4. Create NPCs (AI generates personalities, stats, backgrounds)
+5. Generate NPC Tokens (Avatar images for NPCs)
+6. Create a Session (Schedule a game session)
+7. Generate Session Scenario (AI creates encounters, objectives, rewards)
+8. Create Maps (AI + procedural generation for dungeons, cities, etc.)
+9. Sync Everything to Foundry VTT (One-click setup in your VTT)
+10. Run the Session (Import scenario, track encounters, record results)
+11. Finalize Session (Save results for campaign continuity)
+```
+
+### Step 1: Access the Web Application
+
+After starting the servers with `docker compose up`, open:
+- **Web UI**: http://localhost:3000
+- **Foundry VTT**: http://localhost:30000
+
+### Step 2: Create Your Account
+
+1. Click **"Sign Up"** on the login page
+2. Enter email, username, and a strong password
+3. Click **"Create Account"**
+4. You're logged in! You'll see the Dashboard
+
+### Step 3: Create a Campaign
+
+1. On the Dashboard, click **"New Campaign"**
+2. Fill in campaign details:
+   - **Name**: "The Dragonborn Curse", "Lost City of Arath", etc.
+   - **Setting**: "Medieval Fantasy", "Spelljammer", "Dark Dwarven Kingdom", etc.
+   - **Theme**: "Adventure", "Dark Fantasy", "Mystery", "Political Intrigue", etc.
+   - **Tone**: "Heroic", "Gritty", "Humorous", "Serious", etc.
+   - **Player Count**: How many players are in your party?
+
+3. Click **"Create Campaign"**
+4. You'll see the Campaign Detail page
+
+### Step 4: Generate World Lore
+
+The AI will create rich world-building content for your campaign:
+
+1. On the Campaign page, scroll to the **"World Lore"** section
+2. Click **"Generate Lore"** button
+3. The AI generates:
+   - **History**: Major historical events and eras
+   - **Factions**: Political groups, guilds, organizations
+   - **Locations**: Major cities, dungeons, landmarks
+   - **Legends**: Myths and stories within the world
+   - **Quest Hooks**: Adventure opportunities for your players
+
+4. Review the generated lore, then click **"Save"**
+
+The world lore will inform all subsequent generation (NPCs, scenarios, encounters).
+
+### Step 5: Generate NPCs (Allies, Enemies, Quest-Givers)
+
+Create the cast of characters your players will interact with:
+
+1. Click **"Generate NPCs"** button
+2. Set the count (typically 3-5 for your first batch)
+3. The AI generates NPCs with:
+   - **Name & Role**: Tavern keeper, noble, wizard, brigand, etc.
+   - **Personality**: Quirks, mannerisms, speech patterns
+   - **Stats**: D&D 5e ability scores (STR, DEX, CON, INT, WIS, CHA)
+   - **Motivations**: What drives this NPC?
+   - **Background**: Connection to the campaign world
+   - **Loyalty**: Where do they stand with the party?
+
+4. Review the NPCs and click **"Save"**
+5. You can generate more NPCs anytime — they'll all be available for use in scenarios
+
+### Step 6: Generate NPC Tokens (Character Images)
+
+Every NPC needs an image in Foundry VTT:
+
+1. In the **"NPCs"** section, hover over an NPC
+2. Click **"Generate Token"** button
+3. The system creates a 400×400px image:
+   - Either from DiceBear avatar API (if available)
+   - Or a fallback colored-initial avatar
+4. The token is automatically saved and ready for Foundry sync
+
+Repeat for all NPCs you plan to use in this session.
+
+### Step 7: Create a Session
+
+Each game session is tracked separately for continuity:
+
+1. Click **"New Session"** button
+2. Fill in:
+   - **Title**: "Session 1: Arrival at Waterdeep", "The Goblin Caves", etc.
+   - **Description** (optional): Brief notes about the planned session
+   - **Scheduled Date** (optional): When you plan to play
+
+3. Click **"Create Session"**
+4. You're now on the Session Detail page
+
+### Step 8: Generate a Session Scenario
+
+The AI will create a complete scenario with encounters and plot hooks:
+
+1. On the Session page, click **"Generate Scenario"** button
+2. Wait while the AI creates:
+   - **Scenario Title**: Compelling session hook
+   - **Summary**: 2-3 paragraph overview of the session
+   - **Objectives**: 2-4 main goals players can pursue
+   - **Encounters**: 2-4 combat or roleplay encounters with:
+     - Enemy names and descriptions
+     - Difficulty rating (easy, medium, hard, deadly)
+     - Enemy list and tactics
+   - **Rewards**: Treasure, experience, and story rewards
+   - **Twists**: Unexpected complications or reveals
+
+3. Review the scenario — it's tailored to your campaign world and player count
+4. Adjust any details you'd like to change manually
+
+### Step 9: Generate Maps & Locations
+
+Create visual dungeons and locations for the encounters:
+
+1. Click **"Generate Map"** button
+2. Specify:
+   - **Description**: "Ancient temple filled with dark statues", "Bustling tavern with a secret basement", etc.
+   - **Map Type**: Choose from:
+     - `dungeon` — Underground ruins with rooms, corridors, traps
+     - `cave` — Natural caverns with winding passages
+     - `city` — Urban layout with streets and districts
+     - `building` — Interior building layout (tavern, mansion, etc.)
+     - `wilderness` — Outdoor terrain with forests, rivers, cliffs
+     - `tavern` — Bar/inn interior
+     - `castle` — Fortification with walls and towers
+
+3. The system:
+   - Uses procedural generation (rot-js) to create the layout
+   - Adds walls, doors, and lighting automatically
+   - Renders as a 400×400px PNG with grid overlay
+   - Makes it 100% compatible with Foundry VTT
+
+4. Multiple maps can be created for different encounter locations
+
+### Step 10: Assign NPCs and Maps to Encounters
+
+Link your generated content to the scenario:
+
+1. In the Scenario section, for each encounter, note which map and NPCs are involved
+2. Example:
+   - Encounter 1: "Goblin Ambush" → Use **Forest Map**, NPC: Goblin Chief Grukk
+   - Encounter 2: "Tavern Negotiation" → Use **Tavern Map**, NPC: Innkeeper Marta
+
+The frontend helps you drag-and-drop or select which content belongs to each encounter.
+
+### Step 11: Sync Everything to Foundry VTT
+
+Send all your content (maps, NPCs, lore) to Foundry VTT with one click:
+
+1. Click **"Sync to Foundry"** button on the Campaign page
+2. Or for just this session, click **"Sync Session to Foundry"**
+3. The system will:
+   - Create **Scenes** for each map (with walls, lights, and background images)
+   - Create **Actors** for each NPC (with D&D 5e stats and token images)
+   - Create **Journal Entries** for campaign lore and session notes
+   - Set everything up to be playable immediately
+
+4. Within 30 seconds, check Foundry VTT (http://localhost:30000)
+5. All content will be visible in the sidebar, ready to run the session
+
+### Step 12: Run the Session in Foundry VTT
+
+Now you're ready to play:
+
+1. Open Foundry VTT as the GM
+2. In the left sidebar, select the Scene (map) for your first encounter
+3. Place player tokens on the map
+4. Place enemy tokens (pulled from your generated NPCs)
+5. Run the combat/roleplay encounter as normal
+6. Use the NPC stat blocks for enemy actions
+7. Use the scenario notes as your guide for dialogue and pacing
+
+### Step 13: Record Session Results
+
+After the session, save what happened for campaign continuity:
+
+1. Return to the Session page in Lazy Foundry VTT
+2. Click **"Finalize Session"** button
+3. Fill in what happened:
+   - **Summary**: What was the narrative arc of the session?
+   - **Key Events**: Important plot points (bullet list)
+   - **Player Decisions**: What choices did the party make?
+   - **Combat Summary**: Which encounters happened, who died, damage taken?
+   - **Loot Awarded**: What treasure did they find? How much XP?
+   - **Mood/Tone**: Did it play out as planned? Any surprises?
+   - **Character Development**: How did party dynamics evolve?
+   - **Plot Threads**: What's left unresolved for next session?
+
+4. Click **"Save Results"**
+
+### Step 14: Prepare Next Session
+
+The system remembers everything:
+
+1. Create a new Session for your next game date
+2. Click **"Generate Scenario"**
+3. The AI will:
+   - Reference the previous session results
+   - Respect character development and NPC relationships
+   - Build upon unresolved plot threads
+   - Create a cohesive continuation of the story
+
+4. Your campaign grows organically, with each session building on the last
+
+---
+
+## 🧪 End-to-End Test Workflow (CLI/API)
+
+Complete walkthrough from user registration to content appearing in Foundry VTT using command-line tools. All steps use `curl` and `python3` (for JSON parsing) — both are pre-installed on most Linux/macOS systems.
 
 > **Note**: If registration returns `"Email already registered"`, skip to Step 2 and login with existing credentials.
 
