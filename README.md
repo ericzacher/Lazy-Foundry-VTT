@@ -1017,6 +1017,16 @@ make clean  # Removes old containers
 make up
 ```
 
+**Can't login to Foundry?**
+- **First time setup?** You need to create a GM user:
+  1. Login with admin password (`FOUNDRY_ADMIN_KEY` from `.env`)
+  2. After world launches, click "Return to Setup"
+  3. Go to Configuration → Users → Create User
+  4. Create a Gamemaster user with a password
+  5. Launch world and login with your new GM user
+- **Already have a GM user?** Check your GM user's password
+- Default admin password: `admin` (check your `.env` for `FOUNDRY_ADMIN_KEY`)
+
 **Foundry not syncing?**
 ```bash
 # Check Foundry connection

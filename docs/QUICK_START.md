@@ -41,17 +41,22 @@ make install
 # Or if make isn't installed: docker compose up --build -d
 ```
 
-**4. Accept Foundry License** (1 minute)
+**4. Setup Foundry & Create GM User** (2 minutes)
 - Open http://localhost:30000
-- Accept EULA
-- Enter your Foundry license key
+- Accept EULA and enter your Foundry license key
 - World will auto-launch
+- **Create Your GM User:**
+  1. After world launches, click "Return to Setup"
+  2. Go to "Configuration" → "Users" → "Create User"
+  3. Name: `Gamemaster` (or any name you like)
+  4. Password: Use your `FOUNDRY_ADMIN_KEY` (default: `admin`)
+  5. Role: **Gamemaster**
+  6. Save and launch world
 
 **5. Access Web Interface** (1 minute)
-- Open http://localhost:3000
-- Click "Register"
-- Create your account
-- Start creating!
+- **Web UI**: Open http://localhost:3000
+  - Click "Register"
+  - Create your account
 
 ## 🎯 Your First Campaign (5 minutes)
 

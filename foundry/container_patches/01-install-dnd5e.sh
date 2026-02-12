@@ -177,6 +177,16 @@ if [ ! -d "$WORLD_DIR" ]; then
 WORLDJSON
 
   echo "[lazy-foundry-patch] World '${WORLD_NAME}' created successfully!"
+  echo "[lazy-foundry-patch] "
+  echo "[lazy-foundry-patch] FIRST TIME SETUP - Create Your GM User:"
+  echo "[lazy-foundry-patch]   1. Access Foundry at http://localhost:30000"
+  echo "[lazy-foundry-patch]   2. Login with admin password: ${FOUNDRY_ADMIN_KEY}"
+  echo "[lazy-foundry-patch]   3. After world launches, click 'Return to Setup'"
+  echo "[lazy-foundry-patch]   4. Go to Configuration -> Users -> Create User"
+  echo "[lazy-foundry-patch]   5. Create GM user with name 'Gamemaster' (or any name)"
+  echo "[lazy-foundry-patch]   6. Set password (recommend: ${FOUNDRY_ADMIN_KEY})"
+  echo "[lazy-foundry-patch]   7. Set role to 'Gamemaster'"
+  echo "[lazy-foundry-patch] "
 else
   echo "[lazy-foundry-patch] World '${WORLD_NAME}' already exists. Skipping."
 fi

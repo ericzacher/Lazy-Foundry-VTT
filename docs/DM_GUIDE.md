@@ -114,9 +114,16 @@ make help           # See all commands
    - **Sessions**: Plan and track game sessions
    - **Generate**: AI content generation tools
 
-4. **Foundry VTT Access**
+4. **Foundry VTT Access & GM User Setup**
    - Access Foundry at http://localhost:30000
-   - Use admin password from your `.env` file (`FOUNDRY_ADMIN_KEY`)
+   - Login with admin password from `.env` (`FOUNDRY_ADMIN_KEY`)
+   - **First time only - Create your GM user:**
+     1. After world launches, click "Return to Setup"
+     2. Go to "Configuration" → "Users" → "Create User"
+     3. Create user with name "Gamemaster" (or your choice)
+     4. Set password (recommend using your `FOUNDRY_ADMIN_KEY`)
+     5. Set role to **Gamemaster**
+   - Launch world and login with your GM user
 
 ---
 
