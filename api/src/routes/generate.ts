@@ -336,6 +336,7 @@ router.post(
     param('id').isUUID(),
     body('description').notEmpty().trim(),
     body('mapType').optional().isIn(['dungeon', 'tavern', 'wilderness', 'town', 'city', 'castle', 'cave', 'building', 'other']),
+    body('mapSize').optional().isIn(['small', 'medium', 'large']),
     body('sessionId').optional().isUUID(),
     body('encounterConfig').optional().isObject(),
     body('encounterConfig.count').optional().isInt({ min: 1, max: 10 }),
@@ -360,7 +361,14 @@ router.post(
         return;
       }
 
-      const { description, mapType = 'other', sessionId, encounterConfig } = req.body;
+      const { description, mapType = 'other', mapSize = 'medium', sessionId, encounterConfig } = req.body;
+
+      // Map size presets (in grid units)
+      const SIZE_PRESETS: Record<string, { width: number; height: number }> = {
+        small: { width: 20, height: 20 },
+        medium: { width: 35, height: 35 },
+        large: { width: 50, height: 50 },
+      };
 
       const campaignContext = `
 Campaign: ${campaign.name}
@@ -386,12 +394,13 @@ Tone: ${campaign.tone || 'Balanced'}
       }
 
       // Generate procedural map image + Foundry VTT scene data
-      // Validate dimensions from AI (cap at reasonable sizes to prevent memory issues)
-      const rawDims = mapDescription.dimensions || { width: 30, height: 30 };
-      const dims = {
-        width: Math.min(Math.max(rawDims.width || 30, 20), 80),
-        height: Math.min(Math.max(rawDims.height || 30, 20), 80),
+      // Use size preset if provided, otherwise use AI dimensions
+      const dims = SIZE_PRESETS[mapSize] || {
+        width: Math.min(Math.max(mapDescription.dimensions?.width || 30, 20), 80),
+        height: Math.min(Math.max(mapDescription.dimensions?.height || 30, 20), 80),
       };
+
+      console.log(`[Map Generation] Using ${mapSize} size: ${dims.width}x${dims.height}`);
       
       const generatedMap = await generateMap(
         mapType,

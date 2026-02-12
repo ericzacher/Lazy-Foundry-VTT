@@ -14,6 +14,7 @@ import healthRoutes from './routes/health';
 import { tracingMiddleware } from './middleware/tracing';
 import { errorHandler } from './middleware/errorHandler';
 import { logInfo, logError } from './utils/logger';
+import { foundrySyncService } from './services/foundrySync';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -109,6 +110,14 @@ AppDataSource.initialize()
         environment: process.env.NODE_ENV || 'development',
         port,
       });
+
+      // Initialize Foundry connection to clear GM password (non-blocking)
+      // This runs in the background and doesn't delay startup
+      foundrySyncService.initializeAtStartup().catch((err) => {
+        logError('Foundry initialization failed (non-critical)', {
+          error: err.message,
+        });
+      });
     });
   })
   .catch((error) => {
@@ -122,20 +131,26 @@ AppDataSource.initialize()
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   logInfo('SIGTERM received, shutting down gracefully');
-  
+
+  // Disconnect from Foundry
+  foundrySyncService.disconnect();
+
   if (AppDataSource.isInitialized) {
     await AppDataSource.destroy();
   }
-  
+
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   logInfo('SIGINT received, shutting down gracefully');
-  
+
+  // Disconnect from Foundry
+  foundrySyncService.disconnect();
+
   if (AppDataSource.isInitialized) {
     await AppDataSource.destroy();
   }
-  
+
   process.exit(0);
 });

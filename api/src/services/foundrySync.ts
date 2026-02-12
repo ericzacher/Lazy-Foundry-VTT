@@ -395,6 +395,34 @@ export class FoundrySyncService {
     }
   }
 
+  /**
+   * Initialize connection to Foundry at startup.
+   * This is called when the API starts to proactively:
+   * 1. Clear the GM password so browser users can log in
+   * 2. Ensure connection is ready for first sync operations
+   *
+   * This is non-blocking - failures are logged but don't stop the API.
+   */
+  async initializeAtStartup(): Promise<void> {
+    console.log('[FoundrySync] Initializing connection at startup...');
+    try {
+      const isHealthy = await this.healthCheck();
+      if (!isHealthy) {
+        console.warn('[FoundrySync] Foundry VTT is not yet accessible, will retry on first use');
+        return;
+      }
+
+      const connected = await this.connect();
+      if (connected) {
+        console.log('[FoundrySync] Startup initialization successful - GM password cleared');
+      } else {
+        console.warn('[FoundrySync] Could not connect at startup, will retry on first use');
+      }
+    } catch (error) {
+      console.warn('[FoundrySync] Startup initialization failed (non-critical):', error);
+    }
+  }
+
   // ─── Public API ───────────────────────────────────────────────
 
   /**

@@ -220,11 +220,12 @@ class ApiService {
       difficulty: 'easy' | 'medium' | 'hard' | 'deadly';
       partyLevel: number;
       partySize: number;
-    }
+    },
+    mapSize?: 'small' | 'medium' | 'large'
   ): Promise<{ map: MapData }> {
     return this.request(`/api/generate/campaigns/${campaignId}/maps`, {
       method: 'POST',
-      body: JSON.stringify({ description, mapType, sessionId, encounterConfig }),
+      body: JSON.stringify({ description, mapType, mapSize, sessionId, encounterConfig }),
     });
   }
 

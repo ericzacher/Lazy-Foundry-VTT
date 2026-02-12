@@ -764,12 +764,17 @@ export function CampaignDetail() {
               generating={generatingMap}
               partySize={campaign?.playerCount || 4}
               partyLevel={campaign?.partyLevel || 3}
-              onGenerate={async (description, mapType, encounterConfig) => {
+              sessions={sessions}
+              onGenerate={async (description, mapType, encounterConfig, sessionId, mapSize) => {
                 setGeneratingMap(true);
                 setError('');
                 try {
-                  const { map } = await api.generateMap(id!, description, mapType, undefined, encounterConfig);
+                  const { map } = await api.generateMap(id!, description, mapType, sessionId, encounterConfig, mapSize);
                   setMaps([map, ...maps]);
+                  // If linked to a session, reload sessions to show updated mapIds
+                  if (sessionId) {
+                    await loadSessions();
+                  }
                 } catch (err) {
                   const errorMsg = err instanceof Error ? err.message : 'Failed to generate map';
                   setError(errorMsg);
@@ -1184,21 +1189,25 @@ function MapGenerationForm({
   onGenerate,
   partySize = 4,
   partyLevel = 3,
+  sessions = [],
 }: {
   campaignId: string;
   generating: boolean;
-  onGenerate: (description: string, mapType: string, encounterConfig?: EncounterConfig) => Promise<void>;
+  onGenerate: (description: string, mapType: string, encounterConfig?: EncounterConfig, sessionId?: string, mapSize?: 'small' | 'medium' | 'large') => Promise<void>;
   partySize?: number;
   partyLevel?: number;
+  sessions?: Array<{ id: string; title: string }>;
 }) {
   const [description, setDescription] = useState('');
   const [mapType, setMapType] = useState('dungeon');
+  const [mapSize, setMapSize] = useState<'small' | 'medium' | 'large'>('medium');
   const [includeEncounters, setIncludeEncounters] = useState(false);
   const [encounterCount, setEncounterCount] = useState(2);
   const [encounterDifficulty, setEncounterDifficulty] = useState<'easy' | 'medium' | 'hard' | 'deadly'>('medium');
   const [customPartySize, setCustomPartySize] = useState(partySize);
   const [customPartyLevel, setCustomPartyLevel] = useState(partyLevel);
   const [showCRCalculator, setShowCRCalculator] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1213,9 +1222,10 @@ function MapGenerationForm({
         }
       : undefined;
 
-    await onGenerate(description.trim(), mapType, encounterConfig);
+    await onGenerate(description.trim(), mapType, encounterConfig, selectedSessionId || undefined, mapSize);
     setDescription('');
     setIncludeEncounters(false);
+    setSelectedSessionId('');
   };
 
   return (
@@ -1229,10 +1239,21 @@ function MapGenerationForm({
               value={mapType}
               onChange={(e) => setMapType(e.target.value)}
               className="px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+              title="Map Type"
             >
               {MAP_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
+            </select>
+            <select
+              value={mapSize}
+              onChange={(e) => setMapSize(e.target.value as 'small' | 'medium' | 'large')}
+              className="px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+              title="Map Size"
+            >
+              <option value="small">📏 Small (20x20)</option>
+              <option value="medium">📐 Medium (35x35)</option>
+              <option value="large">📊 Large (50x50)</option>
             </select>
             <input
               type="text"
@@ -1243,6 +1264,30 @@ function MapGenerationForm({
               required
             />
           </div>
+
+          {/* Session Selector */}
+          {sessions.length > 0 && (
+            <div className="bg-blue-900/20 rounded-lg p-3 border border-blue-800/50">
+              <label className="block text-sm font-medium text-blue-300 mb-2">
+                🎲 Link to Session (Optional but Recommended)
+              </label>
+              <select
+                value={selectedSessionId}
+                onChange={(e) => setSelectedSessionId(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+              >
+                <option value="">None - Just generate the map</option>
+                {sessions.map((session) => (
+                  <option key={session.id} value={session.id}>
+                    {session.title}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-2">
+                💡 Link to a session to enable automatic token placement when syncing to Foundry
+              </p>
+            </div>
+          )}
 
           {/* Encounter Configuration */}
           <div className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">

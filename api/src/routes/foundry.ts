@@ -343,10 +343,11 @@ router.post(
       }
 
       const results = {
-        scenes: { success: 0, failed: 0 },
+        scenes: { success: 0, failed: 0, skipped: 0 },
         actors: { success: 0, failed: 0 },
         journals: { success: 0, failed: 0 },
         tokens: { success: 0, failed: 0 },
+        skippedMaps: [] as Array<{ name: string; reason: string }>,
       };
 
       // Sync all maps
@@ -354,8 +355,22 @@ router.post(
         where: { campaignId: campaign.id },
       });
 
+      console.log(`[Bulk Sync] Found ${maps.length} maps for campaign ${campaign.id}`);
+
       for (const map of maps) {
-        if (!map.foundryData || !map.imageUrl) continue;
+        // Check for missing required fields and log specifically what's missing
+        if (!map.foundryData) {
+          console.warn(`[Bulk Sync] Skipping map "${map.name}" (${map.id}): missing foundryData`);
+          results.scenes.skipped++;
+          results.skippedMaps.push({ name: map.name, reason: 'Missing foundryData' });
+          continue;
+        }
+        if (!map.imageUrl) {
+          console.warn(`[Bulk Sync] Skipping map "${map.name}" (${map.id}): missing imageUrl`);
+          results.scenes.skipped++;
+          results.skippedMaps.push({ name: map.name, reason: 'Missing imageUrl' });
+          continue;
+        }
 
         const foundryImagePath = `lazy-foundry-assets/${map.imageUrl.replace(/^\/api\/assets\//, '')}`;
         const sceneData = {
@@ -523,10 +538,17 @@ router.post(
         }
       }
 
+      const message = results.skippedMaps.length > 0
+        ? `Bulk sync completed with ${results.skippedMaps.length} map(s) skipped`
+        : 'Bulk sync completed';
+
       res.json({
         success: true,
-        message: 'Bulk sync completed',
+        message,
         results,
+        warnings: results.skippedMaps.length > 0
+          ? [`${results.skippedMaps.length} map(s) were skipped. Check the 'skippedMaps' field for details.`]
+          : undefined,
       });
     } catch (error) {
       console.error('Bulk sync error:', error);
