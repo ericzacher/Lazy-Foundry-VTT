@@ -400,3 +400,75 @@ Respond with a JSON object containing an "encounters" array. Respond ONLY with v
   const parsed = JSON.parse(content);
   return parsed.encounters || [parsed];
 }
+
+export interface GeneratedMonster {
+  name: string;
+  type: string; // beast, humanoid, undead, etc.
+  cr: number; // Challenge Rating
+  description: string;
+  stats: {
+    strength: number;
+    dexterity: number;
+    constitution: number;
+    intelligence: number;
+    wisdom: number;
+    charisma: number;
+  };
+  combat: {
+    hitPoints: number;
+    armorClass: number;
+    speed: string;
+    attacks: Array<{
+      name: string;
+      bonus: number;
+      damage: string;
+    }>;
+    specialAbilities?: string[];
+  };
+  tactics?: string;
+}
+
+export async function generateMonsters(
+  campaignContext: string,
+  monsterType: string,
+  cr: number,
+  count: number = 1
+): Promise<GeneratedMonster[]> {
+  const prompt = `You are an expert D&D 5e monster designer. Generate ${count} monster(s) for a D&D campaign.
+
+Campaign Context: ${campaignContext}
+
+Monster Type: ${monsterType} (e.g., "goblin", "zombie", "bandit", "wolf", etc.)
+Challenge Rating (CR): ${cr}
+Count: ${count}
+
+For each monster, provide:
+- name: Monster name (include a number if count > 1, e.g., "Goblin Warrior 1")
+- type: Creature type (beast, humanoid, undead, aberration, etc.)
+- cr: Challenge rating (${cr})
+- description: 1-2 sentence physical description
+- stats: Object with strength, dexterity, constitution, intelligence, wisdom, charisma (values appropriate for CR ${cr})
+- combat: Object with:
+  - hitPoints: HP appropriate for CR ${cr}
+  - armorClass: AC appropriate for CR ${cr}
+  - speed: Movement speed (e.g., "30 ft.")
+  - attacks: Array of attacks with name, bonus, and damage (e.g., "1d6+2 slashing")
+  - specialAbilities: Array of special abilities (optional)
+- tactics: Brief combat tactics description (optional)
+
+Make stats balanced for CR ${cr}. If generating multiple monsters, give each a unique name but similar stats.
+
+Respond with a JSON object containing a "monsters" array. Respond ONLY with valid JSON.`;
+
+  const response = await openai.chat.completions.create({
+    model: getModel(),
+    messages: [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' },
+  });
+
+  const content = response.choices[0].message.content;
+  if (!content) throw new Error('No response from AI');
+
+  const parsed = JSON.parse(content);
+  return parsed.monsters;
+}

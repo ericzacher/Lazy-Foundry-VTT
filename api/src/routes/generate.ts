@@ -15,6 +15,7 @@ import {
   generatePlayerBackgrounds,
   generateMapDescription,
   generateDetailedEncounters,
+  generateMonsters,
 } from '../services/ai';
 import { generateContinuityScenario } from '../services/sessionContinuity';
 import { generateMap, saveMapImage } from '../services/mapGenerator';
@@ -751,6 +752,115 @@ router.post(
     } catch (error) {
       console.error('Generate continuity scenario error:', error);
       res.status(500).json({ error: 'Failed to generate continuity scenario' });
+    }
+  }
+);
+
+// Generate monsters (quick combat creatures)
+router.post(
+  '/campaigns/:id/monsters',
+  [
+    param('id').isUUID(),
+    body('monsterType').notEmpty().isString(),
+    body('cr').isFloat({ min: 0, max: 30 }),
+    body('count').optional().isInt({ min: 1, max: 20 }),
+  ],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const { monsterType, cr, count = 1 } = req.body;
+
+      // Generate monsters with AI
+      const monsters = await generateMonsters(
+        campaign.worldLore || `${campaign.setting} - ${campaign.theme}`,
+        monsterType,
+        cr,
+        count
+      );
+
+      // Save each monster as an NPC for Foundry sync
+      const savedMonsters = [];
+      for (const monster of monsters) {
+        const npc = npcRepository().create({
+          campaignId: campaign.id,
+          name: monster.name,
+          role: monster.type,
+          description: monster.description,
+          personality: {
+            traits: monster.combat.specialAbilities || [],
+            ideals: monster.tactics || 'Combat focused',
+            bonds: '',
+            flaws: '',
+          },
+          motivations: ['Combat'],
+          background: `CR ${monster.cr} ${monster.type}`,
+          stats: {
+            strength: monster.stats.strength,
+            dexterity: monster.stats.dexterity,
+            constitution: monster.stats.constitution,
+            intelligence: monster.stats.intelligence,
+            wisdom: monster.stats.wisdom,
+            charisma: monster.stats.charisma,
+          },
+          combatStats: {
+            hitPoints: monster.combat.hitPoints,
+            armorClass: monster.combat.armorClass,
+            speed: monster.combat.speed,
+            attacks: monster.combat.attacks,
+          },
+        });
+
+        const saved = await npcRepository().save(npc);
+        savedMonsters.push(saved);
+
+        // Auto-generate token for monster
+        try {
+          const tokenImage = await generateTokenFromDescription(
+            `${monster.name}: ${monster.description}`,
+            monster.name
+          );
+
+          const tokenPath = await saveTokenImage(
+            tokenImage,
+            campaign.id,
+            saved.id
+          );
+
+          const token = tokenRepository().create({
+            campaignId: campaign.id,
+            npcId: saved.id,
+            imageUrl: tokenPath,
+            name: `${monster.name} Token`,
+          });
+
+          await tokenRepository().save(token);
+        } catch (tokenError) {
+          console.error('Token generation failed (non-critical):', tokenError);
+          // Continue even if token generation fails
+        }
+      }
+
+      res.json({
+        message: `Generated ${count} ${monsterType}(s)`,
+        monsters: savedMonsters,
+      });
+    } catch (error) {
+      console.error('Generate monsters error:', error);
+      res.status(500).json({ error: 'Failed to generate monsters' });
     }
   }
 );

@@ -54,6 +54,7 @@ Generate maps, tokens, NPCs, lore, and scenarios using AI, then sync directly to
 ### 🤖 AI-Powered Content Generation (Groq — llama-3.3-70b-versatile)
 - **World Lore**: Rich history, factions, locations, legends, and quest hooks
 - **NPC Generation**: Personalities, stats (STR/DEX/CON/INT/WIS/CHA), motivations, backgrounds
+- **Monster Generation**: Fast CR-appropriate monsters for combat encounters (10-15 seconds)
 - **Player Backgrounds**: AI-generated character backstories
 - **Map Descriptions**: AI-described rooms, features, connections, and dimensions
 - **Encounter Generation**: Level-appropriate encounters with terrain and tactics
@@ -90,6 +91,7 @@ Generate maps, tokens, NPCs, lore, and scenarios using AI, then sync directly to
 
 ### 🎮 Foundry VTT Auto-Setup
 - **D&D 5e system** auto-installs on first container boot (via container patches)
+- **Lazy Monster Builder module** auto-installs for on-the-fly monster generation
 - **World** auto-creates if not present
 - **World auto-launch** via `FOUNDRY_WORLD` environment variable
 - Zero manual Foundry configuration required after license acceptance
@@ -702,6 +704,7 @@ curl -s -X POST "http://localhost:3001/api/foundry/campaigns/$CAMP_ID/bulk" \
 | POST | `/api/generate/campaigns/:id/lore` | Generate world lore |
 | POST | `/api/generate/campaigns/:id/npcs` | Generate NPCs (`count`: 1-5) |
 | GET | `/api/generate/campaigns/:id/npcs` | List campaign NPCs |
+| POST | `/api/generate/campaigns/:id/monsters` | Generate monsters (`monsterType`, `cr`, `count`) |
 | POST | `/api/generate/campaigns/:id/npcs/:npcId/token` | Generate NPC token image |
 | GET | `/api/generate/campaigns/:id/tokens` | List campaign tokens |
 | POST | `/api/generate/campaigns/:id/maps` | Generate map (`description`, `mapType`) |
@@ -909,6 +912,7 @@ make db-reset
 ### For Dungeon Masters
 - **[Quick Start Guide](docs/QUICK_START.md)** - Get started in 5 minutes
 - **[DM Guide](docs/DM_GUIDE.md)** - Comprehensive guide for running campaigns
+- **[Monster Generation API](docs/MONSTER_GENERATION_API.md)** - Fast AI monster generation (Foundry v13 compatible)
 - **[Best Practices](#)** - Tips for effective AI-powered sessions
 
 ### For Developers
