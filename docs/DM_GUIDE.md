@@ -4,13 +4,94 @@ Welcome, Dungeon Master! This guide will help you leverage Lazy Foundry VTT's AI
 
 ## 📚 Table of Contents
 
-1. [Getting Started](#getting-started)
-2. [Campaign Management](#campaign-management)
-3. [Session Planning](#session-planning)
-4. [AI-Powered Content Generation](#ai-powered-content-generation)
-5. [Foundry VTT Integration](#foundry-vtt-integration)
-6. [Best Practices](#best-practices)
-7. [Troubleshooting](#troubleshooting)
+1. [Essential Make Commands](#-essential-make-commands)
+2. [Getting Started](#getting-started)
+3. [Campaign Management](#campaign-management)
+4. [Session Planning](#session-planning)
+5. [AI-Powered Content Generation](#ai-powered-content-generation)
+6. [Foundry VTT Integration](#foundry-vtt-integration)
+7. [Best Practices](#best-practices)
+8. [Troubleshooting](#troubleshooting)
+
+---
+
+## 🛠️ Essential Make Commands
+
+Quick reference for common commands you'll use regularly. Run these from your terminal in the project directory.
+
+### Starting Your Session
+
+```bash
+# Start all services
+make up
+
+# Start and follow logs
+make dev
+
+# Check everything is running
+make health
+```
+
+### During Your Game
+
+```bash
+# View what's running
+make status
+
+# Quick access to URLs
+make urls
+
+# Check service health
+make health
+```
+
+### If Something Goes Wrong
+
+```bash
+# Restart everything
+make restart
+
+# View logs
+make logs-api       # API logs
+make logs-foundry   # Foundry logs
+make logs-json      # Pretty formatted logs
+
+# Full reset (if things are broken)
+make clean
+make up
+```
+
+### Between Sessions
+
+```bash
+# Stop services (saves resources)
+make stop
+
+# Start again later
+make start
+
+# Backup your data
+make backup
+```
+
+### Common Tasks
+
+```bash
+# Shell access
+make shell-api      # API container
+make shell-db       # Database
+
+# Database operations
+make db-shell       # PostgreSQL prompt
+make migrate-up     # Apply migrations
+
+# View help
+make help           # See all commands
+```
+
+**💡 Tip:** Keep a terminal open with `make dev` running during your session so you can monitor the system in real-time!
+
+**📖 Full Reference:** See [Makefile Reference](MAKEFILE_REFERENCE.md) for all 40+ commands.
 
 ---
 
@@ -18,19 +99,31 @@ Welcome, Dungeon Master! This guide will help you leverage Lazy Foundry VTT's AI
 
 ### First Time Setup
 
-1. **Access the Dashboard**
+1. **Start the Services**
+   ```bash
+   make up
+   ```
+
+2. **Access the Dashboard**
    - Navigate to http://localhost:3000
    - Register for an account using your email
 
-2. **Understand the Interface**
+3. **Understand the Interface**
    - **Dashboard**: Overview of all campaigns and quick stats
    - **Campaigns**: Create and manage campaigns
    - **Sessions**: Plan and track game sessions
    - **Generate**: AI content generation tools
 
-3. **Foundry VTT Access**
+4. **Foundry VTT Access & GM User Setup**
    - Access Foundry at http://localhost:30000
-   - Use admin password from your `.env` file (`FOUNDRY_ADMIN_KEY`)
+   - Login with admin password from `.env` (`FOUNDRY_ADMIN_KEY`)
+   - **First time only - Create your GM user:**
+     1. After world launches, click "Return to Setup"
+     2. Go to "Configuration" → "Users" → "Create User"
+     3. Create user with name "Gamemaster" (or your choice)
+     4. Set password (recommend using your `FOUNDRY_ADMIN_KEY`)
+     5. Set role to **Gamemaster**
+   - Launch world and login with your GM user
 
 ---
 

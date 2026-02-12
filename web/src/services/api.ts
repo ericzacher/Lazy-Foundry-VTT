@@ -38,9 +38,16 @@ class ApiService {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      const message = error.details
-        ? `${error.error || 'Request failed'}: ${error.details}`
-        : error.error || 'Request failed';
+      
+      // Handle validation errors with details
+      if (error.details && Array.isArray(error.details)) {
+        const messages = error.details.map((d: any) => 
+          `${d.field}: ${d.message}`
+        ).join(', ');
+        throw new Error(messages);
+      }
+      
+      const message = error.error || 'Request failed';
       throw new Error(message);
     }
 

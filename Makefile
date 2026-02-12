@@ -23,7 +23,37 @@ help: ## Display this help message
 
 ##@ Setup & Installation
 
-install: ## First time setup - build and start all services
+check-docker-group: ## Check if user is in docker group
+	@if groups | grep -q docker; then \
+		echo "$(GREEN)✓ User is in docker group$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠ User is NOT in docker group$(NC)"; \
+		echo "$(YELLOW)Docker commands will require sudo$(NC)"; \
+		echo ""; \
+		echo "To fix this, run:"; \
+		echo "  $(GREEN)make setup-docker$(NC)"; \
+	fi
+
+setup-docker: ## Add current user to docker group (requires logout/login)
+	@echo "$(YELLOW)Setting up Docker permissions...$(NC)"
+	@if groups | grep -q docker; then \
+		echo "$(GREEN)✓ User is already in docker group$(NC)"; \
+	else \
+		if ! getent group docker > /dev/null 2>&1; then \
+			echo "$(YELLOW)Creating docker group...$(NC)"; \
+			sudo groupadd docker; \
+		fi; \
+		echo "$(YELLOW)Adding user to docker group...$(NC)"; \
+		sudo usermod -aG docker $$USER; \
+		echo "$(GREEN)✓ User added to docker group$(NC)"; \
+		echo ""; \
+		echo "$(YELLOW)IMPORTANT: You must log out and log back in for this to take effect!$(NC)"; \
+		echo "$(YELLOW)Or run: newgrp docker$(NC)"; \
+		echo ""; \
+		echo "After logging back in, verify with: $(GREEN)make check-docker-group$(NC)"; \
+	fi
+
+install: check-docker-group ## First time setup - build and start all services
 	@echo "$(GREEN)Installing Lazy Foundry VTT...$(NC)"
 	@make clean
 	@make build
@@ -203,6 +233,16 @@ fix-permissions: ## Fix file permissions for development
 	@echo "$(GREEN)Fixing permissions...$(NC)"
 	sudo chown -R $$USER:$$USER .
 	@echo "$(GREEN)Permissions fixed!$(NC)"
+
+fix-foundry-permissions: ## Fix Foundry data volume permissions
+	@echo "$(GREEN)Fixing Foundry data permissions...$(NC)"
+	@echo "$(YELLOW)Stopping Foundry container...$(NC)"
+	$(DOCKER_COMPOSE) stop foundry 2>/dev/null || true
+	@echo "$(YELLOW)Fixing volume permissions...$(NC)"
+	$(DOCKER_COMPOSE) run --rm --user root --entrypoint="" foundry sh -c "chown -R node:node /data 2>/dev/null || true"
+	@echo "$(GREEN)Starting Foundry container...$(NC)"
+	$(DOCKER_COMPOSE) up -d foundry
+	@echo "$(GREEN)Foundry permissions fixed!$(NC)"
 
 generate-jwt-secret: ## Generate a secure JWT secret
 	@echo "$(GREEN)Generated JWT_SECRET:$(NC)"
