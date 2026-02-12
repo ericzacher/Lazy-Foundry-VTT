@@ -36,6 +36,9 @@ export class Campaign {
   @Column({ type: 'int', default: 4 })
   playerCount!: number;
 
+  @Column({ type: 'int', default: 3 })
+  partyLevel!: number;
+
   @Column({ type: 'jsonb', nullable: true })
   worldLore?: Record<string, unknown>;
 

@@ -1,12 +1,14 @@
 import { Router, Response } from 'express';
-import { param, validationResult } from 'express-validator';
+import { param, body, validationResult } from 'express-validator';
 import { AppDataSource } from '../config/database';
 import { Campaign } from '../entities/Campaign';
 import { Map } from '../entities/Map';
 import { NPC } from '../entities/NPC';
 import { Token } from '../entities/Token';
+import { Session } from '../entities/Session';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { foundrySyncService } from '../services/foundrySync';
+import { placeEncounterTokens, EncounterTokenPlacement } from '../services/encounterPlacement';
 
 const router = Router();
 
@@ -14,6 +16,7 @@ const campaignRepository = () => AppDataSource.getRepository(Campaign);
 const mapRepository = () => AppDataSource.getRepository(Map);
 const npcRepository = () => AppDataSource.getRepository(NPC);
 const tokenRepository = () => AppDataSource.getRepository(Token);
+const sessionRepository = () => AppDataSource.getRepository(Session);
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
@@ -305,10 +308,23 @@ router.post(
   }
 );
 
+// Size to grid units mapping for token placement
+const SIZE_TO_GRID_UNITS: Record<string, number> = {
+  tiny: 0.5,
+  small: 1,
+  medium: 1,
+  large: 2,
+  huge: 3,
+  gargantuan: 4,
+};
+
 // Bulk sync entire campaign to Foundry
 router.post(
   '/campaigns/:campaignId/bulk',
-  [param('campaignId').isUUID()],
+  [
+    param('campaignId').isUUID(),
+    body('sessionId').optional().isUUID(),
+  ],
   async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -330,6 +346,7 @@ router.post(
         scenes: { success: 0, failed: 0 },
         actors: { success: 0, failed: 0 },
         journals: { success: 0, failed: 0 },
+        tokens: { success: 0, failed: 0 },
       };
 
       // Sync all maps
@@ -404,6 +421,83 @@ router.post(
           npc.syncStatus = 'error';
           await npcRepository().save(npc);
           results.actors.failed++;
+        }
+      }
+
+      // Place encounter tokens if session provided
+      if (req.body.sessionId) {
+        try {
+          const session = await sessionRepository().findOne({
+            where: { id: req.body.sessionId, campaignId: campaign.id },
+          });
+
+          if (session?.scenario && session.mapIds?.length > 0) {
+            const scenario = session.scenario as any;
+
+            if (scenario.encounters?.length > 0) {
+              // Find the first map with a synced scene
+              let targetMap = null;
+              for (const mapId of session.mapIds) {
+                const map = await mapRepository().findOne({
+                  where: { id: mapId },
+                });
+                if (map?.foundrySceneId) {
+                  targetMap = map;
+                  break;
+                }
+              }
+
+              if (targetMap) {
+                console.log(
+                  `[Bulk Sync] Placing encounter tokens for session ${session.id} on scene ${targetMap.foundrySceneId}`
+                );
+
+                const placements = await placeEncounterTokens(
+                  session.id,
+                  targetMap.foundrySceneId,
+                  foundrySyncService
+                );
+
+                for (const placement of placements) {
+                  const gridUnits =
+                    SIZE_TO_GRID_UNITS[placement.enemy?.size || 'medium'] || 1;
+
+                  const tokenResult = await foundrySyncService.createToken(
+                    targetMap.foundrySceneId,
+                    {
+                      name: placement.tokenName,
+                      x: placement.x,
+                      y: placement.y,
+                      width: gridUnits,
+                      height: gridUnits,
+                      disposition: -1, // hostile
+                      actorId: placement.actorId,
+                    }
+                  );
+
+                  if (tokenResult.success) {
+                    results.tokens.success++;
+                  } else {
+                    results.tokens.failed++;
+                    console.error(
+                      `[Bulk Sync] Failed to create token ${placement.tokenName}:`,
+                      tokenResult.error
+                    );
+                  }
+                }
+
+                console.log(
+                  `[Bulk Sync] Token placement complete: ${results.tokens.success} success, ${results.tokens.failed} failed`
+                );
+              } else {
+                console.log(
+                  '[Bulk Sync] No synced map found for token placement'
+                );
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[Bulk Sync] Token placement failed:', error);
         }
       }
 

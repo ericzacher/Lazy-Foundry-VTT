@@ -105,7 +105,7 @@ export function Dashboard() {
                 )}
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-gray-500">
-                    {campaign.playerCount} players
+                    {campaign.playerCount} players, Level {campaign.partyLevel || 3}
                   </span>
                   <button
                     onClick={() => handleDelete(campaign.id)}
@@ -146,6 +146,7 @@ function CreateCampaignModal({
   const [theme, setTheme] = useState('');
   const [tone, setTone] = useState('');
   const [playerCount, setPlayerCount] = useState(4);
+  const [partyLevel, setPartyLevel] = useState(3);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -162,6 +163,7 @@ function CreateCampaignModal({
         theme,
         tone,
         playerCount,
+        partyLevel,
       });
       onCreated(campaign);
     } catch (err) {
@@ -244,6 +246,17 @@ function CreateCampaignModal({
                 type="number"
                 value={playerCount}
                 onChange={(e) => setPlayerCount(parseInt(e.target.value))}
+                min={1}
+                max={10}
+                className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Party Level</label>
+              <input
+                type="number"
+                value={partyLevel}
+                onChange={(e) => setPartyLevel(parseInt(e.target.value))}
                 min={1}
                 max={20}
                 className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"

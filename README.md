@@ -94,6 +94,34 @@ Generate maps, tokens, NPCs, lore, and scenarios using AI, then sync directly to
 - **World auto-launch** via `FOUNDRY_WORLD` environment variable
 - Zero manual Foundry configuration required after license acceptance
 
+### ⚔️ Combat Enhancement System (NEW!)
+- **Automatic Token Placement**: Sync sessions with encounters to auto-place enemy tokens
+  - Smart room selection (skips player spawn, filters by size, distributes encounters)
+  - Intelligent positioning (single enemy: center, 2-4: circular, 5+: grid formation)
+  - Proper token sizing (Tiny=0.5x0.5, Medium=1x1, Large=2x2, Huge=3x3, Gargantuan=4x4)
+  - Auto-numbered duplicates (Goblin 1, Goblin 2, Goblin 3)
+  - Hostile disposition (red border) pre-configured
+- **CR Calculator**: Interactive Challenge Rating helper
+  - Party-specific XP thresholds (Easy/Medium/Hard/Deadly)
+  - Recommended CR ranges based on party size and level
+  - Educational guide explaining difficulty levels
+  - Adjustable party configuration
+- **Integrated Encounter Generation**: Generate encounters directly with maps
+  - Choose 1-4 encounters per map
+  - Select difficulty level (Easy/Medium/Hard/Deadly)
+  - AI generates balanced encounters with full enemy details:
+    - Name, count, CR (as strings like "1/4", "1/2"), HP, AC
+    - Abilities, tactics, terrain, objectives
+    - Rewards (XP, gold, items)
+    - Alternative resolutions (non-combat solutions)
+  - Encounters auto-linked to session scenarios
+- **Party Configuration**: Set player count and party level at campaign level
+  - Drives all encounter generation
+  - Displayed throughout UI (e.g., "4 players, Level 5")
+  - Used by CR calculator for accurate recommendations
+- **Complete Combat Workflow**: From generation to playable scene in 15 minutes
+  - Generate map with encounters → Sync to Foundry → Combat ready!
+
 ### 🛡️ Phase 6: Production Hardening
 - **Security Headers**: Helmet.js with CSP, HSTS, referrer policy
 - **Request Tracing**: Correlation IDs for tracking requests across logs

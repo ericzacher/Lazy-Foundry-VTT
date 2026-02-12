@@ -283,20 +283,377 @@ Session 2: AI generates scenario where goblins
 - Regenerate if not satisfied
 - Maps auto-saved to campaign
 
-### Encounter Generation
+### Encounter Generation & Combat Enhancement
 
-**Inputs:**
-- Party level
-- Party composition
-- Terrain type
-- Difficulty preference
+**NEW: Integrated Combat Workflow**
 
-**Outputs:**
-- Balanced encounter
-- Enemy stats
-- Tactical suggestions
-- Terrain features
-- Victory/defeat conditions
+The system now provides a complete end-to-end solution for combat encounters, from generation to playable Foundry scenes with automatically placed tokens.
+
+#### Party Configuration
+
+**Campaign-Level Defaults:**
+- **Player Count**: Set in campaign (1-10 players)
+- **Party Level**: Set in campaign (1-20)
+- These serve as default values for encounter generation
+
+**Per-Map Custom Configuration (NEW):**
+- **Override Defaults**: When generating a specific map with encounters
+- **Party Size Input**: Custom party size for this encounter (optional)
+- **Party Level Input**: Custom party level for this encounter (optional)
+- **Use Cases**:
+  - Absent players (generate for 3 instead of usual 4)
+  - Different level groups (side quest for level 7 when campaign is level 5)
+  - Playtesting different party compositions
+
+**To Set Campaign Defaults:**
+1. Create/Edit Campaign
+2. Set "Player Count" (e.g., 4)
+3. Set "Party Level" (e.g., 5)
+4. These become defaults for all encounter generation
+
+**To Override for Specific Map:**
+1. In map generation form
+2. Enable "Include Combat Encounters"
+3. See "Party Size (defaults to X)" input
+4. Enter custom value or leave blank for campaign default
+5. Use CR Calculator to verify balance
+
+#### CR Calculator (Challenge Rating Helper)
+
+**Access:** Click "🧮 CR Calculator" button in map generation form
+
+**Features:**
+- **XP Thresholds**: Shows party-wide XP for Easy/Medium/Hard/Deadly
+- **Recommended CR Ranges**: Appropriate CR values for each difficulty
+- **Educational Guide**: Explains what each difficulty means
+- **Interactive Adjustment**: Change party size/level to preview scenarios
+- **Apply & Close (NEW)**: Update form values directly from calculator
+
+**Understanding CR Levels:**
+- **Easy**: Resource drain only, minimal danger
+- **Medium**: Some PCs hurt, short rest needed
+- **Hard**: Dangerous fight, long rest recommended
+- **Deadly**: Character death possible
+
+**Example CR Recommendations (Party of 4, Level 5):**
+- Easy: CR 1/2 - 1
+- Medium: CR 1 - 2
+- Hard: CR 2 - 3
+- Deadly: CR 3 - 5
+
+**Using Apply & Close:**
+1. Open CR Calculator from map generation form
+2. Adjust party size/level to see different difficulty breakdowns
+3. Find the configuration you want
+4. Click "Apply & Close" button
+5. Calculator closes and updates the form's party size/level inputs
+6. Generate encounters with the new values
+
+**Workflow Example:**
+```
+1. Campaign defaults: 4 players, Level 5
+2. Open CR Calculator (shows 4/Level 5)
+3. Change to 3 players, Level 7 in calculator
+4. Review new CR recommendations
+5. Click "Apply & Close"
+6. Form now shows: Party Size: 3, Party Level: 7
+7. Generate encounters balanced for this configuration
+```
+
+#### Encounter Generation with Maps
+
+**Workflow:**
+
+1. **Navigate to Maps Tab**
+
+2. **Select Map Type** (Dungeon, Cave, etc.)
+
+3. **Enable Combat Encounters:**
+   - ✅ Check "Include Combat Encounters"
+   - Select number (1-4 encounters)
+   - Choose difficulty:
+     - 🟢 Easy
+     - 🟡 Medium
+     - 🟠 Hard
+     - 🔴 Deadly
+
+4. **Configure Party (NEW - Optional):**
+   - **Party Size Input**: Shows "Party Size (defaults to X)"
+   - **Party Level Input**: Shows "Party Level (defaults to Y)"
+   - Leave blank to use campaign defaults
+   - Enter custom values to override for this map only
+   - Click "🧮 CR Calculator" to:
+     - Preview difficulty with custom values
+     - Adjust values interactively
+     - Click "Apply & Close" to update form
+
+5. **Generate**
+   - System creates map
+   - AI generates detailed encounters balanced for specified party
+   - Encounters stored with map
+
+**Example: Custom Party Configuration**
+```
+Campaign: 4 players, Level 5 (defaults)
+
+Scenario 1 - Use Defaults:
+- Leave inputs blank
+- Generates for 4 players, Level 5
+
+Scenario 2 - Custom Override:
+- Enter Party Size: 3
+- Enter Party Level: 7
+- Generates for 3 players, Level 7
+
+Scenario 3 - Using CR Calculator:
+- Click "🧮 CR Calculator"
+- Adjust to 5 players, Level 4
+- See CR recommendations update
+- Click "Apply & Close"
+- Form updates to Party Size: 5, Party Level: 4
+- Generate with new values
+```
+
+**What Gets Generated:**
+
+Each encounter includes:
+- **Name & Description**: Thematic encounter setup
+- **Enemy Details**:
+  - Name (e.g., "Goblin Warrior")
+  - Count (e.g., 4)
+  - CR as string (e.g., "1/4")
+  - Hit Points (e.g., 7)
+  - Armor Class (e.g., 15)
+  - Abilities (e.g., ["Nimble Escape", "Pack Tactics"])
+  - Tactics (e.g., "Use hit-and-run attacks")
+- **Terrain**: Battlefield description
+- **Objectives**: Combat goals (array of strings)
+- **Rewards**: Loot and XP (e.g., "120 XP", "Magic sword +1")
+- **Tactical Notes**: DM tips for running the encounter
+- **Alternative Resolutions**: Non-combat solutions
+
+**Example Generated Encounter:**
+```json
+{
+  "name": "Goblin Ambush",
+  "difficulty": "medium",
+  "challengeRating": "2",
+  "enemies": [
+    {
+      "name": "Goblin Warrior",
+      "count": 4,
+      "cr": "1/4",
+      "hitPoints": 7,
+      "armorClass": 15,
+      "abilities": ["Nimble Escape", "Pack Tactics"],
+      "tactics": "Use hit-and-run, focus fire on weakest PC"
+    },
+    {
+      "name": "Goblin Boss",
+      "count": 1,
+      "cr": "1",
+      "hitPoints": 21,
+      "armorClass": 17,
+      "abilities": ["Redirect Attack", "Leadership"],
+      "tactics": "Stay back, command minions, retreat if alone"
+    }
+  ],
+  "rewards": ["120 XP", "35 gold pieces", "Goblin boss's +1 scimitar"],
+  "alternativeResolutions": [
+    "Intimidate goblins into fleeing",
+    "Negotiate passage in exchange for food"
+  ]
+}
+```
+
+#### Automatic Token Placement
+
+**NEW: Zero-Setup Combat Scenes**
+
+When you sync a session with encounters to Foundry, tokens are automatically placed!
+
+**How It Works:**
+
+1. **Generate Map with Encounters** (as above)
+
+2. **Link to Session** (optional but recommended):
+   - Map can auto-link to current session
+   - Or manually assign map to session
+
+3. **Click "🎲 Sync" on Session** (NOT regular bulk sync):
+   - Finds session on campaign page
+   - Look for sessions with scenario + map
+   - Click the "🎲 Sync" button next to session
+
+4. **System Automatically:**
+   - Creates Foundry scenes (maps)
+   - Creates Foundry actors (enemy stat blocks)
+   - **Expands enemy counts** (3x Goblin → Goblin 1, 2, 3)
+   - **Calculates positions** using room centers
+   - **Places tokens** on map
+   - **Sizes tokens** correctly (Tiny=0.5x0.5, Large=2x2, etc.)
+   - **Sets disposition** to hostile (red border)
+
+**Token Placement Algorithm:**
+
+- **Room Selection**:
+  - Skips room[0] (player spawn)
+  - Filters rooms ≥4x4 grid units
+  - Sorts by distance from origin (furthest first)
+  - Distributes encounters across multiple rooms
+
+- **Position Calculation**:
+  - **1 Enemy**: Center of room + random jitter (±0.3 units)
+  - **2-4 Enemies**: Circular formation around room center
+  - **5+ Enemies**: Grid formation with proper spacing
+
+- **Token Properties**:
+  - Size based on creature (Tiny=0.5, Medium=1, Large=2, Huge=3)
+  - Disposition = -1 (hostile, red border)
+  - HP and AC from enemy stats
+  - Numbered for duplicates (Goblin 1, Goblin 2, etc.)
+
+**Result:**
+
+You get a **combat-ready scene** in Foundry with:
+- ✅ Map with walls, doors, lighting
+- ✅ Enemy tokens properly positioned
+- ✅ Correct token sizes
+- ✅ Enemy stat blocks (actors)
+- ✅ HP/AC pre-configured
+- ✅ Ready to play immediately
+
+#### Complete Combat Workflow
+
+**Full Process (15 minutes):**
+
+```
+1. Set Party Config (one-time, 1 min)
+   └─ Campaign settings: 4 players, Level 5
+
+2. Generate Map with Encounters (5 min)
+   ├─ Select "Dungeon"
+   ├─ Describe: "Ancient dwarven forge"
+   ├─ ✅ Include Encounters
+   ├─ Select: 2 encounters, Medium difficulty
+   ├─ (Optional) Customize party size/level
+   │  ├─ Enter custom values (e.g., 3 players, Level 7)
+   │  └─ Or use "🧮 CR Calculator" → Adjust → "Apply & Close"
+   └─ Generate
+
+3. Review Generated Content (3 min)
+   ├─ Check encounter balance
+   ├─ Read tactics and rewards
+   └─ Note alternative resolutions
+
+4. Sync to Foundry (2 min)
+   ├─ Find session with this map
+   ├─ Click "🎲 Sync" button
+   └─ Wait for confirmation
+
+5. Verify in Foundry (4 min)
+   ├─ Open scene in Foundry
+   ├─ Check token positions
+   ├─ Review enemy stat blocks
+   └─ Ready to play!
+```
+
+**Sync Results Message:**
+```
+Sync completed!
+Scenes: 1 synced, 0 failed
+Actors: 5 synced, 0 failed
+Journals: 1 synced, 0 failed
+Tokens: 8 placed, 0 failed  ← NEW!
+```
+
+#### Best Practices for Combat Encounters
+
+**Before Generation:**
+- ✅ Set accurate party level in campaign defaults
+- ✅ Update campaign party level as they advance
+- ✅ Use CR calculator to understand difficulty
+- ✅ Choose difficulty based on session pacing
+
+**When to Use Custom Party Configuration:**
+- ✅ Player absence (reduce party size for that session)
+- ✅ Split party scenarios (generate for subgroup)
+- ✅ Guest players (temporarily increase party size)
+- ✅ Side quests with level variance
+- ✅ Playtesting different party compositions
+- ✅ Creating encounters for future levels
+
+**During Generation:**
+- ✅ Provide descriptive map details
+- ✅ Match encounter difficulty to session goals
+- ✅ Generate 2-3 encounters per map
+- ✅ Use CR Calculator "Apply & Close" for quick adjustments
+- ✅ Review encounters before syncing
+
+**After Syncing:**
+- ✅ Check Foundry scene layout
+- ✅ Adjust token positions if needed
+- ✅ Review enemy tactics
+- ✅ Prepare backup plans (alternative resolutions)
+- ✅ Note rewards for post-combat
+
+**Difficulty Guidelines:**
+
+**Easy Encounters:**
+- Use for: Random encounters, weak guards
+- Party resource cost: Minimal
+- Best for: 4-6 encounters per adventuring day
+
+**Medium Encounters:**
+- Use for: Standard combat, challenging but fair
+- Party resource cost: Some spell slots, HP
+- Best for: 2-3 encounters per adventuring day
+
+**Hard Encounters:**
+- Use for: Boss minions, elite guards
+- Party resource cost: Significant resources
+- Best for: 1-2 encounters per adventuring day
+
+**Deadly Encounters:**
+- Use for: Major boss fights, climactic battles
+- Party resource cost: Everything they have
+- Best for: 1 encounter (session finale)
+
+#### Troubleshooting Combat Features
+
+**Problem:** JSON generation error
+**Solution:**
+- Check API logs: `make logs-api`
+- Verify Groq API key is valid
+- Try regenerating with simpler description
+- System now ensures CR values are properly formatted as strings
+
+**Problem:** Tokens not appearing
+**Solution:**
+- Ensure you clicked "🎲 Sync" button (NOT bulk sync)
+- Verify session has both scenario AND map
+- Check sync results message for token count
+- View API logs for placement errors
+
+**Problem:** Tokens positioned poorly
+**Solution:**
+- Map generator tries to use room centers
+- If rooms too small, tokens may cluster
+- Manually adjust in Foundry as needed
+- Report if consistently poor placement
+
+**Problem:** Wrong token sizes
+**Solution:**
+- System infers size from enemy name/CR
+- Edit encounter enemy data if incorrect
+- Resync to update
+
+**Problem:** Encounters too easy/hard
+**Solution:**
+- Use CR calculator to verify difficulty
+- Adjust party level if incorrect
+- Choose different difficulty level
+- Remember: Action economy matters (many weak > one strong)
 
 ### Player Backgrounds
 
