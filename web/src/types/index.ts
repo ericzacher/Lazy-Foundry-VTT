@@ -141,12 +141,18 @@ export interface NPC {
   motivations: string[];
   background?: string;
   stats?: {
-    strength: number;
-    dexterity: number;
-    constitution: number;
-    intelligence: number;
-    wisdom: number;
-    charisma: number;
+    strength?: number;
+    dexterity?: number;
+    constitution?: number;
+    intelligence?: number;
+    wisdom?: number;
+    charisma?: number;
+    // Monster stats
+    hitPoints?: number;
+    armorClass?: number;
+    challengeRating?: string;
+    size?: string;
+    abilities?: string[];
   };
   tokenImageUrl?: string;
   foundryActorId?: string;
@@ -185,9 +191,23 @@ export interface MapData {
       type: string;
     }>;
     encounters?: Array<{
-      location: string;
+      location?: string;
+      name?: string;
       description: string;
       difficulty: string;
+      challengeRating?: string;
+      enemies?: Array<{
+        name: string;
+        count: number;
+        cr: string;
+        hitPoints: number;
+        armorClass: number;
+        abilities?: string[];
+        tactics?: string;
+      }>;
+      terrain?: string;
+      tacticalNotes?: string;
+      rewards?: string[];
     }>;
     atmosphere?: unknown;
     hazards?: unknown[];

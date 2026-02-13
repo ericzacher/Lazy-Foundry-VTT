@@ -68,7 +68,7 @@ function jitter(): number {
 /**
  * Infer enemy size from CR or name
  */
-function inferEnemySize(enemy: { name: string; cr?: string }): string {
+export function inferEnemySize(enemy: { name: string; cr?: string }): string {
   const name = enemy.name.toLowerCase();
 
   // Size keywords in name

@@ -22,6 +22,7 @@ import {
   generateTokenFromDescription,
   saveTokenImage,
 } from '../services/tokenGenerator';
+import { inferEnemySize } from '../services/encounterPlacement';
 
 const router = Router();
 
@@ -391,6 +392,34 @@ Tone: ${campaign.tone || 'Balanced'}
         );
         generatedEncounters = encounters.slice(0, encounterConfig.count);
         console.log(`[Map Generation] Generated ${generatedEncounters.length} encounters for map`);
+
+        // Save encounter enemies as NPC entities (monsters)
+        const seenEnemyNames = new Set<string>();
+        for (const encounter of generatedEncounters) {
+          if (encounter.enemies) {
+            for (const enemy of encounter.enemies) {
+              if (seenEnemyNames.has(enemy.name)) continue;
+              seenEnemyNames.add(enemy.name);
+
+              const npcEntity = npcRepository().create({
+                campaignId: campaign.id,
+                name: enemy.name,
+                role: 'Monster',
+                description: `${enemy.tactics || ''}\n\nFrom encounter: ${encounter.name}`.trim(),
+                stats: {
+                  hitPoints: enemy.hitPoints,
+                  armorClass: enemy.armorClass,
+                  challengeRating: enemy.cr,
+                  size: inferEnemySize(enemy),
+                  abilities: enemy.abilities || [],
+                } as unknown as Record<string, unknown>,
+                motivations: [],
+              });
+              await npcRepository().save(npcEntity);
+            }
+          }
+        }
+        console.log(`[Map Generation] Created ${seenEnemyNames.size} monster NPCs`);
       }
 
       // Generate procedural map image + Foundry VTT scene data
@@ -665,7 +694,7 @@ router.post(
         npc.description || npc.personality?.toString() || '',
         npc.id,
         size,
-        npc.role?.toLowerCase().includes('enemy') ? 'npc' : 'character'
+        npc.role?.toLowerCase().includes('enemy') || npc.role === 'Monster' ? 'npc' : 'character'
       );
 
       // Save token image
@@ -686,7 +715,7 @@ router.post(
         name: npc.name,
         description: npc.description,
         imageUrl,
-        type: npc.role?.toLowerCase().includes('enemy') ? 'npc' : 'character',
+        type: npc.role?.toLowerCase().includes('enemy') || npc.role === 'Monster' ? 'npc' : 'character',
         size: tokenData.size,
         width: tokenData.width,
         height: tokenData.height,

@@ -601,7 +601,7 @@ export function CampaignDetail() {
                 {npcs.map((npc) => (
                   <div
                     key={npc.id}
-                    className="bg-gray-800 rounded-lg p-6 border border-gray-700"
+                    className={`bg-gray-800 rounded-lg p-6 border ${npc.role === 'Monster' ? 'border-red-800/50' : 'border-gray-700'}`}
                   >
                     <div className="flex gap-4 mb-3">
                       {/* Token Image */}
@@ -704,7 +704,18 @@ export function CampaignDetail() {
                                 {syncingToFoundry.has(npc.id) ? '⏳ Syncing...' : '🔄 Sync'}
                               </button>
                             )}
-                            {npc.stats && (
+                            {npc.stats && npc.stats.hitPoints != null ? (
+                              <div className="text-xs mt-1 space-y-1">
+                                <div className="flex gap-2">
+                                  <span className="text-red-400 font-medium">HP {npc.stats.hitPoints}</span>
+                                  <span className="text-blue-400 font-medium">AC {npc.stats.armorClass}</span>
+                                  <span className="text-yellow-400 font-medium">CR {npc.stats.challengeRating}</span>
+                                </div>
+                                {npc.stats.size && (
+                                  <span className="text-gray-500 capitalize">{npc.stats.size}</span>
+                                )}
+                              </div>
+                            ) : npc.stats && (
                               <div className="text-xs text-gray-500 grid grid-cols-3 gap-1 mt-1">
                                 <span>STR {npc.stats.strength}</span>
                                 <span>DEX {npc.stats.dexterity}</span>
@@ -742,6 +753,15 @@ export function CampaignDetail() {
                       <div className="text-sm">
                         <span className="text-gray-500">Motivations:</span>{' '}
                         {npc.motivations.join(', ')}
+                      </div>
+                    )}
+                    {npc.stats?.abilities && npc.stats.abilities.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {npc.stats.abilities.map((ability, i) => (
+                          <span key={i} className="text-xs bg-red-500/10 text-red-300 px-2 py-0.5 rounded">
+                            {ability}
+                          </span>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -941,14 +961,49 @@ export function CampaignDetail() {
                     {map.details.encounters && map.details.encounters.length > 0 && (
                       <div>
                         <h4 className="text-sm font-medium text-gray-400 mb-2">Encounters</h4>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {map.details.encounters.map((enc, i) => (
-                            <div key={i} className="bg-gray-700/50 rounded p-3">
-                              <div className="flex justify-between">
-                                <span className="text-sm font-medium">{enc.location}</span>
-                                <span className="text-xs text-red-400">{enc.difficulty}</span>
+                            <div key={i} className="bg-gray-700/50 rounded p-3 border border-gray-600/50">
+                              <div className="flex justify-between items-start mb-1">
+                                <span className="text-sm font-medium">{enc.name || enc.location}</span>
+                                <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                                  enc.difficulty === 'deadly' ? 'bg-red-500/20 text-red-400' :
+                                  enc.difficulty === 'hard' ? 'bg-orange-500/20 text-orange-400' :
+                                  enc.difficulty === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                                  'bg-green-500/20 text-green-400'
+                                }`}>{enc.difficulty}{enc.challengeRating ? ` (CR ${enc.challengeRating})` : ''}</span>
                               </div>
-                              <p className="text-gray-400 text-xs mt-1">{enc.description}</p>
+                              {enc.location && enc.name && (
+                                <p className="text-gray-500 text-xs mb-1">{enc.location}</p>
+                              )}
+                              <p className="text-gray-400 text-xs mb-2">{enc.description}</p>
+                              {enc.enemies && enc.enemies.length > 0 && (
+                                <div className="mt-2">
+                                  <span className="text-xs text-gray-500 font-medium">Enemies:</span>
+                                  <div className="mt-1 space-y-1">
+                                    {enc.enemies.map((enemy, j) => (
+                                      <div key={j} className="flex items-center gap-2 text-xs bg-gray-800/50 rounded px-2 py-1">
+                                        <span className="text-red-400 font-medium">{enemy.count}x</span>
+                                        <span className="text-gray-200">{enemy.name}</span>
+                                        <span className="text-gray-500">CR {enemy.cr}</span>
+                                        <span className="text-gray-500">|</span>
+                                        <span className="text-red-300">HP {enemy.hitPoints}</span>
+                                        <span className="text-blue-300">AC {enemy.armorClass}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {enc.tacticalNotes && (
+                                <p className="text-gray-500 text-xs mt-2 italic">{enc.tacticalNotes}</p>
+                              )}
+                              {enc.rewards && enc.rewards.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {enc.rewards.map((reward, j) => (
+                                    <span key={j} className="text-xs bg-yellow-500/10 text-yellow-400 px-2 py-0.5 rounded">{reward}</span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
