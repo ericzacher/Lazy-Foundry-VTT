@@ -1,14 +1,13 @@
 import { Router, Response } from 'express';
-import { param, body, validationResult } from 'express-validator';
+import { param, validationResult } from 'express-validator';
 import { AppDataSource } from '../config/database';
 import { Campaign } from '../entities/Campaign';
 import { Map } from '../entities/Map';
 import { NPC } from '../entities/NPC';
 import { Token } from '../entities/Token';
-import { Session } from '../entities/Session';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { foundrySyncService } from '../services/foundrySync';
-import { placeEncounterTokens, EncounterTokenPlacement } from '../services/encounterPlacement';
+import { placeEncounterTokensFromMap } from '../services/encounterPlacement';
 
 const router = Router();
 
@@ -16,8 +15,6 @@ const campaignRepository = () => AppDataSource.getRepository(Campaign);
 const mapRepository = () => AppDataSource.getRepository(Map);
 const npcRepository = () => AppDataSource.getRepository(NPC);
 const tokenRepository = () => AppDataSource.getRepository(Token);
-const sessionRepository = () => AppDataSource.getRepository(Session);
-
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
@@ -104,8 +101,10 @@ router.post(
       const foundryImagePath = map.imageUrl
         ? `lazy-foundry-assets/${map.imageUrl.replace(/^\/api\/assets\//, '')}`
         : undefined;
+      // Strip 'rooms' from foundryData — it's our internal data, not a Foundry scene property
+      const { rooms: _rooms, ...foundrySceneData } = (map.foundryData || {}) as Record<string, unknown>;
       const sceneData = {
-        ...map.foundryData,
+        ...foundrySceneData,
         name: map.name,
         background: foundryImagePath
           ? { src: foundryImagePath }
@@ -321,10 +320,7 @@ const SIZE_TO_GRID_UNITS: Record<string, number> = {
 // Bulk sync entire campaign to Foundry
 router.post(
   '/campaigns/:campaignId/bulk',
-  [
-    param('campaignId').isUUID(),
-    body('sessionId').optional().isUUID(),
-  ],
+  [param('campaignId').isUUID()],
   async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -357,6 +353,8 @@ router.post(
 
       console.log(`[Bulk Sync] Found ${maps.length} maps for campaign ${campaign.id}`);
 
+      const successfullySyncedMaps: Map[] = [];
+
       for (const map of maps) {
         // Check for missing required fields and log specifically what's missing
         if (!map.foundryData) {
@@ -373,8 +371,10 @@ router.post(
         }
 
         const foundryImagePath = `lazy-foundry-assets/${map.imageUrl.replace(/^\/api\/assets\//, '')}`;
+        // Strip 'rooms' from foundryData — it's our internal data, not a Foundry scene property
+        const { rooms: _rooms, ...foundrySceneData } = (map.foundryData || {}) as Record<string, unknown>;
         const sceneData = {
-          ...map.foundryData,
+          ...foundrySceneData,
           name: map.name,
           background: { src: foundryImagePath },
         };
@@ -386,6 +386,7 @@ router.post(
           map.syncStatus = 'synced';
           await mapRepository().save(map);
           results.scenes.success++;
+          successfullySyncedMaps.push(map);
         } else {
           map.syncStatus = 'error';
           await mapRepository().save(map);
@@ -439,82 +440,62 @@ router.post(
         }
       }
 
-      // Place encounter tokens if session provided
-      if (req.body.sessionId) {
-        try {
-          const session = await sessionRepository().findOne({
-            where: { id: req.body.sessionId, campaignId: campaign.id },
-          });
+      // Place encounter tokens for all synced maps that have encounters
+      for (const syncedMap of successfullySyncedMaps) {
+        const mapDetails = syncedMap.details as any;
+        const encounters = mapDetails?.encounters || [];
 
-          if (session?.scenario && session.mapIds?.length > 0) {
-            const scenario = session.scenario as any;
+        if (encounters.length > 0 && syncedMap.foundrySceneId) {
+          try {
+            console.log(
+              `[Bulk Sync] Placing encounter tokens for map "${syncedMap.name}" on scene ${syncedMap.foundrySceneId}`
+            );
 
-            if (scenario.encounters?.length > 0) {
-              // Find the first map with a synced scene
-              let targetMap = null;
-              for (const mapId of session.mapIds) {
-                const map = await mapRepository().findOne({
-                  where: { id: mapId },
-                });
-                if (map?.foundrySceneId) {
-                  targetMap = map;
-                  break;
+            const placements = await placeEncounterTokensFromMap(
+              syncedMap,
+              foundrySyncService
+            );
+
+            for (const placement of placements) {
+              const gridUnits =
+                SIZE_TO_GRID_UNITS[placement.enemy?.size || 'medium'] || 1;
+
+              const tokenResult = await foundrySyncService.createToken(
+                syncedMap.foundrySceneId,
+                {
+                  name: placement.tokenName,
+                  x: placement.x,
+                  y: placement.y,
+                  width: gridUnits,
+                  height: gridUnits,
+                  disposition: -1, // hostile
+                  actorId: placement.actorId,
                 }
-              }
+              );
 
-              if (targetMap) {
-                console.log(
-                  `[Bulk Sync] Placing encounter tokens for session ${session.id} on scene ${targetMap.foundrySceneId}`
-                );
-
-                const placements = await placeEncounterTokens(
-                  session.id,
-                  targetMap.foundrySceneId,
-                  foundrySyncService
-                );
-
-                for (const placement of placements) {
-                  const gridUnits =
-                    SIZE_TO_GRID_UNITS[placement.enemy?.size || 'medium'] || 1;
-
-                  const tokenResult = await foundrySyncService.createToken(
-                    targetMap.foundrySceneId,
-                    {
-                      name: placement.tokenName,
-                      x: placement.x,
-                      y: placement.y,
-                      width: gridUnits,
-                      height: gridUnits,
-                      disposition: -1, // hostile
-                      actorId: placement.actorId,
-                    }
-                  );
-
-                  if (tokenResult.success) {
-                    results.tokens.success++;
-                  } else {
-                    results.tokens.failed++;
-                    console.error(
-                      `[Bulk Sync] Failed to create token ${placement.tokenName}:`,
-                      tokenResult.error
-                    );
-                  }
-                }
-
-                console.log(
-                  `[Bulk Sync] Token placement complete: ${results.tokens.success} success, ${results.tokens.failed} failed`
-                );
+              if (tokenResult.success) {
+                results.tokens.success++;
               } else {
-                console.log(
-                  '[Bulk Sync] No synced map found for token placement'
+                results.tokens.failed++;
+                console.error(
+                  `[Bulk Sync] Failed to create token ${placement.tokenName}:`,
+                  tokenResult.error
                 );
               }
             }
+
+            console.log(
+              `[Bulk Sync] Token placement for "${syncedMap.name}": ${placements.length} actor(s) created`
+            );
+          } catch (error) {
+            console.error(`[Bulk Sync] Token placement failed for map "${syncedMap.name}":`, error);
           }
-        } catch (error) {
-          console.error('[Bulk Sync] Token placement failed:', error);
         }
       }
+
+      console.log(
+        `[Bulk Sync] Token placement complete: ${results.tokens.success} success, ${results.tokens.failed} failed`
+      );
 
       // Sync campaign lore
       if (campaign.worldLore && Object.keys(campaign.worldLore).length > 0) {

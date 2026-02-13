@@ -241,11 +241,179 @@ function createActorFromEnemy(enemy: ExpandedEnemy): {
 }
 
 // ============================================================
-// Main Function
+// Main Functions
 // ============================================================
 
 /**
- * Place encounter tokens on a Foundry scene
+ * Place encounter tokens on a Foundry scene using map data directly.
+ *
+ * This bypasses the session-based flow entirely, reading encounters
+ * from map.details.encounters and rooms from map.foundryData.rooms.
+ * This is the primary path used by bulk sync.
+ */
+export async function placeEncounterTokensFromMap(
+  map: Map,
+  foundrySyncService: FoundrySyncService
+): Promise<EncounterTokenPlacement[]> {
+  const placements: EncounterTokenPlacement[] = [];
+
+  try {
+    if (!map.foundrySceneId) {
+      console.log('[EncounterPlacement] Map has no foundrySceneId, skipping');
+      return placements;
+    }
+
+    const mapDetails = map.details as any;
+    const encounters = mapDetails?.encounters || [];
+
+    if (encounters.length === 0) {
+      console.log(`[EncounterPlacement] No encounters in map "${map.name}"`);
+      return placements;
+    }
+
+    const foundryData = map.foundryData as any;
+    let rooms: RoomData[] = foundryData?.rooms || [];
+    const gridSize = foundryData?.grid?.size || 100;
+
+    // Fallback for older maps that don't have rooms stored in foundryData:
+    // Create synthetic rooms from the map dimensions
+    if (rooms.length === 0) {
+      const sceneWidth = foundryData?.width || 3000;
+      const sceneHeight = foundryData?.height || 3000;
+      const gridW = Math.floor(sceneWidth / gridSize);
+      const gridH = Math.floor(sceneHeight / gridSize);
+
+      if (encounters.length <= 1) {
+        // Single encounter: one room in the center
+        rooms = [{
+          id: 0,
+          x: Math.floor(gridW * 0.25),
+          y: Math.floor(gridH * 0.25),
+          width: Math.floor(gridW * 0.5),
+          height: Math.floor(gridH * 0.5),
+          centerX: Math.floor(gridW / 2),
+          centerY: Math.floor(gridH / 2),
+        }];
+      } else {
+        // Multiple encounters: divide map into quadrants
+        const halfW = Math.floor(gridW / 2);
+        const halfH = Math.floor(gridH / 2);
+        const quadrants = [
+          { x: 2, y: 2 },
+          { x: halfW + 2, y: 2 },
+          { x: 2, y: halfH + 2 },
+          { x: halfW + 2, y: halfH + 2 },
+        ];
+        rooms = quadrants.slice(0, encounters.length).map((q, i) => ({
+          id: i,
+          x: q.x,
+          y: q.y,
+          width: halfW - 4,
+          height: halfH - 4,
+          centerX: q.x + Math.floor((halfW - 4) / 2),
+          centerY: q.y + Math.floor((halfH - 4) / 2),
+        }));
+      }
+
+      console.log(
+        `[EncounterPlacement] No rooms in foundryData for map "${map.name}", using ${rooms.length} fallback room(s) from map dimensions`
+      );
+    }
+
+    console.log(
+      `[EncounterPlacement] Processing ${encounters.length} encounter(s) in ${rooms.length} room(s) for map "${map.name}"`
+    );
+    console.log(
+      `[EncounterPlacement] Encounter keys: ${encounters.map((e: any) => Object.keys(e).join(',')).join(' | ')}`
+    );
+
+    const selectedRooms = selectRoomsForEncounters(rooms, encounters.length);
+
+    for (let encIdx = 0; encIdx < encounters.length; encIdx++) {
+      const encounter = encounters[encIdx];
+
+      let enemyList: Array<{
+        name: string;
+        count: number;
+        cr?: string;
+        hitPoints?: number;
+        armorClass?: number;
+        size?: string;
+      }> = [];
+
+      if (encounter.enemies && Array.isArray(encounter.enemies)) {
+        if (typeof encounter.enemies[0] === 'string') {
+          enemyList = encounter.enemies.map((name: string) => ({
+            name,
+            count: 1,
+            cr: '0',
+            hitPoints: 1,
+            armorClass: 10,
+          }));
+        } else {
+          enemyList = encounter.enemies;
+        }
+      }
+
+      if (enemyList.length === 0) {
+        console.log(
+          `[EncounterPlacement] Encounter ${encIdx} has no enemies, skipping`
+        );
+        continue;
+      }
+
+      console.log(
+        `[EncounterPlacement] Encounter ${encIdx}: ${enemyList.length} enemy type(s): ${enemyList.map(e => `${e.name} x${e.count}`).join(', ')}`
+      );
+
+      const expandedEnemies = expandEnemyCount(enemyList);
+
+      // Sanity cap: a single encounter shouldn't produce more than 12 tokens
+      if (expandedEnemies.length > 12) {
+        console.warn(
+          `[EncounterPlacement] Encounter ${encIdx} expanded to ${expandedEnemies.length} tokens, capping at 12`
+        );
+        expandedEnemies.length = 12;
+      }
+      const room = selectedRooms[encIdx % selectedRooms.length];
+      const positions = calculateTokenPositions(expandedEnemies, room, gridSize);
+
+      for (const position of positions) {
+        const actorData = createActorFromEnemy(position.enemy);
+        const actorResult = await foundrySyncService.createActor(actorData);
+
+        if (actorResult.success && actorResult.data?._id) {
+          placements.push({
+            actorId: actorResult.data._id,
+            tokenName: position.enemy.name,
+            x: position.x,
+            y: position.y,
+            enemy: position.enemy,
+          });
+          console.log(
+            `[EncounterPlacement] Created actor for ${position.enemy.name} at (${Math.round(position.x)}, ${Math.round(position.y)})`
+          );
+        } else {
+          console.error(
+            `[EncounterPlacement] Failed to create actor for ${position.enemy.name}:`,
+            actorResult.error
+          );
+        }
+      }
+    }
+
+    console.log(
+      `[EncounterPlacement] Completed placement of ${placements.length} token(s) for map "${map.name}"`
+    );
+  } catch (error) {
+    console.error('[EncounterPlacement] Error placing tokens from map:', error);
+  }
+
+  return placements;
+}
+
+/**
+ * Place encounter tokens on a Foundry scene (session-based, legacy)
  *
  * This function:
  * 1. Loads session and map data

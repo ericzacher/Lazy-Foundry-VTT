@@ -426,7 +426,7 @@ Tone: ${campaign.tone || 'Balanced'}
         gridSize: generatedMap.gridSize,
         dimensions: { width: generatedMap.gridWidth, height: generatedMap.gridHeight },
         details: mapDetails as unknown as Record<string, unknown>,
-        foundryData: generatedMap.foundryScene as unknown as Record<string, unknown>,
+        foundryData: { ...generatedMap.foundryScene, rooms: generatedMap.rooms } as unknown as Record<string, unknown>,
       });
 
       await mapRepository().save(mapEntity);
