@@ -4,6 +4,14 @@ import { api } from '../services/api';
 import type { Campaign, Session, NPC, MapData, TimelineEvent, NPCStatus } from '../types';
 import { SessionStatus } from '../types';
 import { ErrorAlert } from '../components/LoadingSpinner';
+import { CRCalculator } from '../components/CRCalculator';
+
+interface EncounterConfig {
+  count: number;
+  difficulty: 'easy' | 'medium' | 'hard' | 'deadly';
+  partyLevel: number;
+  partySize: number;
+}
 
 export function CampaignDetail() {
   const { id } = useParams<{ id: string }>();
@@ -175,13 +183,23 @@ export function CampaignDetail() {
     }
   };
 
-  const handleBulkSyncCampaign = async () => {
-    if (!campaign || !confirm('Sync all maps and NPCs to Foundry VTT?')) return;
+  const handleBulkSyncCampaign = async (sessionId?: string) => {
+    if (!campaign) return;
+
+    const message = sessionId
+      ? 'Sync this session to Foundry VTT with automatic token placement?'
+      : 'Sync all maps and NPCs to Foundry VTT?';
+
+    if (!confirm(message)) return;
+
     setSyncingToFoundry(new Set(['bulk']));
     setError('');
     try {
-      const result = await api.bulkSyncCampaign(campaign.id);
-      alert(`Sync completed!\nScenes: ${result.results.scenes.success} synced, ${result.results.scenes.failed} failed\nActors: ${result.results.actors.success} synced, ${result.results.actors.failed} failed\nJournals: ${result.results.journals.success} synced, ${result.results.journals.failed} failed`);
+      const result = await api.bulkSyncCampaign(campaign.id, sessionId);
+      const tokenMsg = result.results.tokens.success > 0
+        ? `\nTokens: ${result.results.tokens.success} placed, ${result.results.tokens.failed} failed`
+        : '';
+      alert(`Sync completed!\nScenes: ${result.results.scenes.success} synced, ${result.results.scenes.failed} failed\nActors: ${result.results.actors.success} synced, ${result.results.actors.failed} failed\nJournals: ${result.results.journals.success} synced, ${result.results.journals.failed} failed${tokenMsg}`);
       await loadMaps();
       await loadNPCs();
     } catch (err) {
@@ -274,7 +292,7 @@ export function CampaignDetail() {
                 {campaign.setting && <span>Setting: {campaign.setting}</span>}
                 {campaign.theme && <span>Theme: {campaign.theme}</span>}
                 {campaign.tone && <span>Tone: {campaign.tone}</span>}
-                <span>{campaign.playerCount} players</span>
+                <span>{campaign.playerCount} players, Level {campaign.partyLevel || 3}</span>
               </div>
             </div>
             <div className="flex gap-2">
@@ -294,7 +312,7 @@ export function CampaignDetail() {
               </button>
               {foundryStatus === 'connected' && (
                 <button
-                  onClick={handleBulkSyncCampaign}
+                  onClick={() => handleBulkSyncCampaign()}
                   disabled={syncingToFoundry.has('bulk')}
                   className="px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded font-medium disabled:opacity-50 flex items-center gap-2"
                   title="Sync all content to Foundry VTT"
@@ -443,6 +461,16 @@ export function CampaignDetail() {
                         >
                           View
                         </Link>
+                        {foundryStatus === 'connected' && session.scenario && (session.mapIds?.length ?? 0) > 0 && (
+                          <button
+                            onClick={() => handleBulkSyncCampaign(session.id)}
+                            disabled={syncingToFoundry.has('bulk')}
+                            className="px-3 py-1 bg-orange-600 hover:bg-orange-700 rounded text-xs font-medium disabled:opacity-50"
+                            title="Sync session to Foundry with automatic token placement"
+                          >
+                            {syncingToFoundry.has('bulk') ? '⏳' : '🎲 Sync'}
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDeleteSession(session.id)}
                           className="text-red-400 hover:text-red-300 text-sm"
@@ -734,12 +762,19 @@ export function CampaignDetail() {
             <MapGenerationForm
               campaignId={id!}
               generating={generatingMap}
-              onGenerate={async (description, mapType) => {
+              partySize={campaign?.playerCount || 4}
+              partyLevel={campaign?.partyLevel || 3}
+              sessions={sessions}
+              onGenerate={async (description, mapType, encounterConfig, sessionId, mapSize) => {
                 setGeneratingMap(true);
                 setError('');
                 try {
-                  const { map } = await api.generateMap(id!, description, mapType);
+                  const { map } = await api.generateMap(id!, description, mapType, sessionId, encounterConfig, mapSize);
                   setMaps([map, ...maps]);
+                  // If linked to a session, reload sessions to show updated mapIds
+                  if (sessionId) {
+                    await loadSessions();
+                  }
                 } catch (err) {
                   const errorMsg = err instanceof Error ? err.message : 'Failed to generate map';
                   setError(errorMsg);
@@ -1149,54 +1184,220 @@ const MAP_TYPES = [
 ];
 
 function MapGenerationForm({
+  campaignId,
   generating,
   onGenerate,
+  partySize = 4,
+  partyLevel = 3,
+  sessions = [],
 }: {
   campaignId: string;
   generating: boolean;
-  onGenerate: (description: string, mapType: string) => Promise<void>;
+  onGenerate: (description: string, mapType: string, encounterConfig?: EncounterConfig, sessionId?: string, mapSize?: 'small' | 'medium' | 'large') => Promise<void>;
+  partySize?: number;
+  partyLevel?: number;
+  sessions?: Array<{ id: string; title: string }>;
 }) {
   const [description, setDescription] = useState('');
   const [mapType, setMapType] = useState('dungeon');
+  const [mapSize, setMapSize] = useState<'small' | 'medium' | 'large'>('medium');
+  const [includeEncounters, setIncludeEncounters] = useState(false);
+  const [encounterCount, setEncounterCount] = useState(2);
+  const [encounterDifficulty, setEncounterDifficulty] = useState<'easy' | 'medium' | 'hard' | 'deadly'>('medium');
+  const [customPartySize, setCustomPartySize] = useState(partySize);
+  const [customPartyLevel, setCustomPartyLevel] = useState(partyLevel);
+  const [showCRCalculator, setShowCRCalculator] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description.trim()) return;
-    await onGenerate(description.trim(), mapType);
+
+    const encounterConfig = includeEncounters
+      ? {
+          count: encounterCount,
+          difficulty: encounterDifficulty,
+          partyLevel: customPartyLevel,
+          partySize: customPartySize,
+        }
+      : undefined;
+
+    await onGenerate(description.trim(), mapType, encounterConfig, selectedSessionId || undefined, mapSize);
     setDescription('');
+    setIncludeEncounters(false);
+    setSelectedSessionId('');
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-      <h3 className="text-sm font-medium text-gray-400 mb-3">Generate New Map</h3>
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="flex gap-3">
-          <select
-            value={mapType}
-            onChange={(e) => setMapType(e.target.value)}
-            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
-          >
-            {MAP_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
-          </select>
-          <input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Describe the location (e.g., An abandoned dwarven forge beneath a volcano)"
-            className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
-            required
-          />
+    <>
+      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+        <h3 className="text-sm font-medium text-gray-400 mb-3">Generate New Map</h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Map Configuration */}
+          <div className="flex gap-3">
+            <select
+              value={mapType}
+              onChange={(e) => setMapType(e.target.value)}
+              className="px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+              title="Map Type"
+            >
+              {MAP_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+            <select
+              value={mapSize}
+              onChange={(e) => setMapSize(e.target.value as 'small' | 'medium' | 'large')}
+              className="px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+              title="Map Size"
+            >
+              <option value="small">📏 Small (20x20)</option>
+              <option value="medium">📐 Medium (35x35)</option>
+              <option value="large">📊 Large (50x50)</option>
+            </select>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the location (e.g., An abandoned dwarven forge beneath a volcano)"
+              className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+              required
+            />
+          </div>
+
+          {/* Session Selector */}
+          {sessions.length > 0 && (
+            <div className="bg-blue-900/20 rounded-lg p-3 border border-blue-800/50">
+              <label className="block text-sm font-medium text-blue-300 mb-2">
+                🎲 Link to Session (Optional but Recommended)
+              </label>
+              <select
+                value={selectedSessionId}
+                onChange={(e) => setSelectedSessionId(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:outline-none focus:border-blue-500 text-sm"
+              >
+                <option value="">None - Just generate the map</option>
+                {sessions.map((session) => (
+                  <option key={session.id} value={session.id}>
+                    {session.title}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-2">
+                💡 Link to a session to enable automatic token placement when syncing to Foundry
+              </p>
+            </div>
+          )}
+
+          {/* Encounter Configuration */}
+          <div className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+            <div className="flex items-center justify-between mb-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeEncounters}
+                  onChange={(e) => setIncludeEncounters(e.target.checked)}
+                  className="w-4 h-4 rounded bg-gray-600 border-gray-500"
+                />
+                <span className="text-sm font-medium">Include Combat Encounters</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowCRCalculator(true)}
+                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+              >
+                🧮 CR Calculator
+              </button>
+            </div>
+
+            {includeEncounters && (
+              <div className="space-y-3 mt-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">
+                      Number of Encounters
+                    </label>
+                    <select
+                      value={encounterCount}
+                      onChange={(e) => setEncounterCount(parseInt(e.target.value))}
+                      className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+                    >
+                      <option value="1">1 Encounter</option>
+                      <option value="2">2 Encounters</option>
+                      <option value="3">3 Encounters</option>
+                      <option value="4">4 Encounters</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">
+                      Difficulty
+                    </label>
+                    <select
+                      value={encounterDifficulty}
+                      onChange={(e) => setEncounterDifficulty(e.target.value as any)}
+                      className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+                    >
+                      <option value="easy">🟢 Easy</option>
+                      <option value="medium">🟡 Medium</option>
+                      <option value="hard">🟠 Hard</option>
+                      <option value="deadly">🔴 Deadly</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">
+                      Party Size (defaults to {partySize})
+                    </label>
+                    <input
+                      type="number"
+                      value={customPartySize}
+                      onChange={(e) => setCustomPartySize(parseInt(e.target.value) || partySize)}
+                      min={1}
+                      max={10}
+                      className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">
+                      Party Level (defaults to {partyLevel})
+                    </label>
+                    <input
+                      type="number"
+                      value={customPartyLevel}
+                      onChange={(e) => setCustomPartyLevel(parseInt(e.target.value) || partyLevel)}
+                      min={1}
+                      max={20}
+                      className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             type="submit"
             disabled={generating || !description.trim()}
-            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded font-medium text-sm disabled:opacity-50 whitespace-nowrap"
+            className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded font-medium text-sm disabled:opacity-50"
           >
-            {generating ? 'Generating...' : 'Generate Map'}
+            {generating ? 'Generating...' : includeEncounters ? 'Generate Map with Encounters' : 'Generate Map'}
           </button>
-        </div>
-      </form>
-    </div>
+        </form>
+      </div>
+
+      {showCRCalculator && (
+        <CRCalculator
+          partySize={customPartySize}
+          partyLevel={customPartyLevel}
+          onClose={() => setShowCRCalculator(false)}
+          onApply={(size, level) => {
+            setCustomPartySize(size);
+            setCustomPartyLevel(level);
+            setShowCRCalculator(false);
+          }}
+        />
+      )}
+    </>
   );
 }

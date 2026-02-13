@@ -23,6 +23,7 @@ Documentation for using Lazy Foundry VTT to run campaigns.
 | Document | Description | Key Topics |
 |----------|-------------|------------|
 | **[DM Guide](DM_GUIDE.md)** | Complete guide for DMs | Campaign creation, session planning, AI generation, Foundry sync |
+| **[Combat Features](COMBAT_FEATURES.md)** | **NEW!** Combat enhancement system | Automatic token placement, CR calculator, encounter generation |
 | **[Quick Start](QUICK_START.md)** | First campaign walkthrough | Setup, first session, common commands |
 | **[Best Practices](#)** *(coming soon)* | Tips for effective play | Prompt engineering, session structure |
 
@@ -115,6 +116,7 @@ Documentation for deploying and managing Lazy Foundry VTT.
 ### "I want to run my first campaign"
 1. [Quick Start Guide](QUICK_START.md)
 2. [DM Guide](DM_GUIDE.md)
+3. [Combat Features](COMBAT_FEATURES.md) - For combat-heavy sessions
 
 ### "I want to deploy to production"
 1. [Makefile Reference](MAKEFILE_REFERENCE.md)
@@ -155,6 +157,7 @@ Documentation for deploying and managing Lazy Foundry VTT.
 
 ## 🔄 Recently Updated
 
+- **2026-02** - **Combat Features** added (automatic token placement, CR calculator)
 - **2024** - Phase 6 implementation complete
 - **2024** - DM Guide created
 - **2024** - Quick Start Guide created

@@ -214,11 +214,18 @@ class ApiService {
     campaignId: string,
     description: string,
     mapType?: string,
-    sessionId?: string
+    sessionId?: string,
+    encounterConfig?: {
+      count: number;
+      difficulty: 'easy' | 'medium' | 'hard' | 'deadly';
+      partyLevel: number;
+      partySize: number;
+    },
+    mapSize?: 'small' | 'medium' | 'large'
   ): Promise<{ map: MapData }> {
     return this.request(`/api/generate/campaigns/${campaignId}/maps`, {
       method: 'POST',
-      body: JSON.stringify({ description, mapType, sessionId }),
+      body: JSON.stringify({ description, mapType, mapSize, sessionId, encounterConfig }),
     });
   }
 
@@ -298,16 +305,26 @@ class ApiService {
     });
   }
 
-  async bulkSyncCampaign(campaignId: string): Promise<{ 
-    success: boolean; 
-    results: { 
+  async bulkSyncCampaign(campaignId: string, sessionId?: string): Promise<{
+    success: boolean;
+    results: {
       scenes: { success: number; failed: number };
       actors: { success: number; failed: number };
       journals: { success: number; failed: number };
-    } 
+      tokens: { success: number; failed: number };
+    }
   }> {
+    const payload: { sessionId?: string } = {};
+    if (sessionId) {
+      payload.sessionId = sessionId;
+    }
+
     return this.request(`/api/foundry/campaigns/${campaignId}/bulk`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
     });
   }
 

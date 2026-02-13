@@ -12,6 +12,7 @@ export interface Campaign {
   theme?: string;
   tone?: string;
   playerCount: number;
+  partyLevel: number;
   worldLore?: Record<string, unknown>;
   rules?: Record<string, unknown>;
   ownerId: string;

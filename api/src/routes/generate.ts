@@ -337,7 +337,13 @@ router.post(
     param('id').isUUID(),
     body('description').notEmpty().trim(),
     body('mapType').optional().isIn(['dungeon', 'tavern', 'wilderness', 'town', 'city', 'castle', 'cave', 'building', 'other']),
+    body('mapSize').optional().isIn(['small', 'medium', 'large']),
     body('sessionId').optional().isUUID(),
+    body('encounterConfig').optional().isObject(),
+    body('encounterConfig.count').optional().isInt({ min: 1, max: 10 }),
+    body('encounterConfig.difficulty').optional().isIn(['easy', 'medium', 'hard', 'deadly']),
+    body('encounterConfig.partyLevel').optional().isInt({ min: 1, max: 20 }),
+    body('encounterConfig.partySize').optional().isInt({ min: 1, max: 10 }),
   ],
   async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
@@ -356,7 +362,14 @@ router.post(
         return;
       }
 
-      const { description, mapType = 'other', sessionId } = req.body;
+      const { description, mapType = 'other', mapSize = 'medium', sessionId, encounterConfig } = req.body;
+
+      // Map size presets (in grid units)
+      const SIZE_PRESETS: Record<string, { width: number; height: number }> = {
+        small: { width: 20, height: 20 },
+        medium: { width: 35, height: 35 },
+        large: { width: 50, height: 50 },
+      };
 
       const campaignContext = `
 Campaign: ${campaign.name}
@@ -367,13 +380,28 @@ Tone: ${campaign.tone || 'Balanced'}
 
       const mapDescription = await generateMapDescription(campaignContext, description, mapType);
 
+      // Generate detailed encounters if requested
+      let generatedEncounters: any[] = [];
+      if (encounterConfig) {
+        const encounterType = `${encounterConfig.difficulty} ${mapType} encounters`;
+        const encounters = await generateDetailedEncounters(
+          campaignContext,
+          encounterConfig.partyLevel,
+          encounterConfig.partySize,
+          encounterType
+        );
+        generatedEncounters = encounters.slice(0, encounterConfig.count);
+        console.log(`[Map Generation] Generated ${generatedEncounters.length} encounters for map`);
+      }
+
       // Generate procedural map image + Foundry VTT scene data
-      // Validate dimensions from AI (cap at reasonable sizes to prevent memory issues)
-      const rawDims = mapDescription.dimensions || { width: 30, height: 30 };
-      const dims = {
-        width: Math.min(Math.max(rawDims.width || 30, 20), 80),
-        height: Math.min(Math.max(rawDims.height || 30, 20), 80),
+      // Use size preset if provided, otherwise use AI dimensions
+      const dims = SIZE_PRESETS[mapSize] || {
+        width: Math.min(Math.max(mapDescription.dimensions?.width || 30, 20), 80),
+        height: Math.min(Math.max(mapDescription.dimensions?.height || 30, 20), 80),
       };
+
+      console.log(`[Map Generation] Using ${mapSize} size: ${dims.width}x${dims.height}`);
       
       const generatedMap = await generateMap(
         mapType,
@@ -384,6 +412,12 @@ Tone: ${campaign.tone || 'Balanced'}
       );
 
       // Save map to database first to get the ID
+      // Include generated encounters in the map details
+      const mapDetails = {
+        ...mapDescription,
+        encounters: generatedEncounters.length > 0 ? generatedEncounters : mapDescription.encounters,
+      };
+
       const mapEntity = mapRepository().create({
         campaignId: campaign.id,
         sessionId: sessionId || undefined,
@@ -392,8 +426,8 @@ Tone: ${campaign.tone || 'Balanced'}
         type: mapType as MapType,
         gridSize: generatedMap.gridSize,
         dimensions: { width: generatedMap.gridWidth, height: generatedMap.gridHeight },
-        details: mapDescription as unknown as Record<string, unknown>,
-        foundryData: generatedMap.foundryScene as unknown as Record<string, unknown>,
+        details: mapDetails as unknown as Record<string, unknown>,
+        foundryData: { ...generatedMap.foundryScene, rooms: generatedMap.rooms } as unknown as Record<string, unknown>,
       });
 
       await mapRepository().save(mapEntity);
@@ -406,6 +440,28 @@ Tone: ${campaign.tone || 'Balanced'}
       );
       mapEntity.imageUrl = imageUrl;
       await mapRepository().save(mapEntity);
+
+      // If encounters were generated and a session is linked, update the session scenario
+      if (generatedEncounters.length > 0 && sessionId) {
+        const session = await sessionRepository().findOne({
+          where: { id: sessionId, campaignId: campaign.id },
+        });
+
+        if (session) {
+          const currentScenario = (session.scenario as any) || {};
+          const updatedScenario = {
+            ...currentScenario,
+            title: currentScenario.title || mapDescription.name,
+            summary: currentScenario.summary || mapDescription.description,
+            encounters: generatedEncounters,
+          };
+
+          session.scenario = updatedScenario as unknown as Record<string, unknown>;
+          session.mapIds = [...new Set([...session.mapIds, mapEntity.id])];
+          await sessionRepository().save(session);
+          console.log(`[Map Generation] Updated session ${sessionId} with encounters`);
+        }
+      }
 
       res.json({ map: mapEntity });
     } catch (error) {

@@ -373,16 +373,28 @@ Party Size: ${partySize}
 Encounter Theme: ${encounterType}
 
 For each encounter, provide:
-- name: Encounter name
-- description: 1-2 paragraph scene description
-- difficulty: easy/medium/hard/deadly
-- challengeRating: Overall CR for the encounter
-- enemies: Array of enemies, each with name, count, cr (challenge rating), hitPoints, armorClass, abilities array, and tactics
-- terrain: Description of the battlefield
-- objectives: Array of combat objectives
-- rewards: Array of loot/XP rewards
-- tacticalNotes: DM tips for running this encounter
-- alternativeResolutions: Array of non-combat solutions
+- name: Encounter name (string)
+- description: 1-2 paragraph scene description (string)
+- difficulty: easy/medium/hard/deadly (string)
+- challengeRating: Overall CR as a STRING (e.g., "3", "1/2", "1/4")
+- enemies: Array of enemy objects with:
+  - name: Enemy name (string)
+  - count: Number of this enemy (integer)
+  - cr: Challenge rating as a STRING (e.g., "1", "1/2", "1/4", "2")
+  - hitPoints: HP value (integer)
+  - armorClass: AC value (integer)
+  - abilities: Array of ability names (array of strings)
+  - tactics: Tactical description (string)
+- terrain: Battlefield description (string)
+- objectives: Array of objective descriptions (array of strings)
+- rewards: Array of reward descriptions as STRINGS (e.g., "500 XP", "Magic sword +1")
+- tacticalNotes: DM tips (string)
+- alternativeResolutions: Array of non-combat solution descriptions (array of strings)
+
+IMPORTANT:
+- All CR values MUST be strings in quotes (e.g., "1/4", "1/2", "1", "2")
+- Rewards must be simple strings, not objects
+- Alternative resolutions must be simple strings, not objects
 
 Balance encounters for a party of ${partySize} level ${partyLevel} characters.
 
