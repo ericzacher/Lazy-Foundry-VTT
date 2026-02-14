@@ -725,6 +725,101 @@ export class FoundrySyncService {
   }
 
   /**
+   * Create a Combat encounter in Foundry VTT.
+   * A Combat represents an encounter in Foundry's combat tracker.
+   */
+  async createCombat(sceneId: string, options?: {
+    name?: string;
+    active?: boolean;
+  }): Promise<FoundryResponse<{ _id: string }>> {
+    try {
+      await this.ensureConnected();
+
+      const result = await this.emitAndWait('modifyDocument', {
+        action: 'create',
+        type: 'Combat',
+        operation: {
+          data: [{
+            scene: sceneId,
+            active: options?.active ?? false,
+          }],
+          broadcast: true,
+        },
+      });
+
+      if (result.error) {
+        console.error('[FoundrySync] Combat creation error:', result.error.message);
+        return { success: false, error: result.error.message };
+      }
+
+      const created = (result.result as Array<{ _id: string }>)?.[0];
+      console.log(`[FoundrySync] Combat created: ${created?._id} for scene ${sceneId}`);
+      return { success: true, data: { _id: created?._id } };
+    } catch (error) {
+      console.error('[FoundrySync] Failed to create combat:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Create Combatants within a Combat encounter.
+   * Each combatant links a token on the scene to the combat tracker.
+   */
+  async createCombatants(
+    combatId: string,
+    combatants: Array<{
+      actorId: string;
+      tokenId: string;
+      sceneId: string;
+      name?: string;
+      initiative?: number | null;
+      hidden?: boolean;
+    }>
+  ): Promise<FoundryResponse<Array<{ _id: string }>>> {
+    try {
+      await this.ensureConnected();
+
+      const combatantData = combatants.map((c) => ({
+        actorId: c.actorId,
+        tokenId: c.tokenId,
+        sceneId: c.sceneId,
+        name: c.name,
+        initiative: c.initiative ?? null,
+        hidden: c.hidden ?? false,
+        defeated: false,
+      }));
+
+      const result = await this.emitAndWait('modifyDocument', {
+        action: 'create',
+        type: 'Combatant',
+        operation: {
+          data: combatantData,
+          parentUuid: `Combat.${combatId}`,
+          broadcast: true,
+        },
+      });
+
+      if (result.error) {
+        console.error('[FoundrySync] Combatant creation error:', result.error.message);
+        return { success: false, error: result.error.message };
+      }
+
+      const created = (result.result as Array<{ _id: string }>) || [];
+      console.log(`[FoundrySync] Created ${created.length} combatant(s) in combat ${combatId}`);
+      return { success: true, data: created };
+    } catch (error) {
+      console.error('[FoundrySync] Failed to create combatants:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
    * Get all actors from Foundry VTT.
    */
   async getActors(): Promise<FoundryResponse<Array<{ _id: string; name: string }>>> {

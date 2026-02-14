@@ -11,7 +11,34 @@ interface EncounterConfig {
   difficulty: 'easy' | 'medium' | 'hard' | 'deadly';
   partyLevel: number;
   partySize: number;
+  monsterType?: string;
+  monstersPerEncounter?: number;
 }
+
+const MONSTER_TYPES = [
+  { value: '', label: 'Any Type' },
+  { value: 'aberration', label: 'Aberration' },
+  { value: 'beast', label: 'Beast' },
+  { value: 'celestial', label: 'Celestial' },
+  { value: 'construct', label: 'Construct' },
+  { value: 'dragon', label: 'Dragon' },
+  { value: 'elemental', label: 'Elemental' },
+  { value: 'fey', label: 'Fey' },
+  { value: 'fiend', label: 'Fiend' },
+  { value: 'giant', label: 'Giant' },
+  { value: 'humanoid', label: 'Humanoid' },
+  { value: 'monstrosity', label: 'Monstrosity' },
+  { value: 'ooze', label: 'Ooze' },
+  { value: 'plant', label: 'Plant' },
+  { value: 'undead', label: 'Undead' },
+];
+
+const SUGGESTED_COUNTS: Record<string, string> = {
+  easy: '1-2 encounters for a light session',
+  medium: '2-3 encounters for a balanced session',
+  hard: '2-3 encounters for a challenging session',
+  deadly: '1-2 encounters for a high-stakes session',
+};
 
 export function CampaignDetail() {
   const { id } = useParams<{ id: string }>();
@@ -31,6 +58,8 @@ export function CampaignDetail() {
   const [npcStatuses, setNpcStatuses] = useState<Record<string, NPCStatus>>({});
   const [showCreateSessionModal, setShowCreateSessionModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'sessions' | 'lore' | 'npcs' | 'maps' | 'timeline'>('sessions');
+  const [addingEncounters, setAddingEncounters] = useState<string | null>(null);
+  const [generatingEncounters, setGeneratingEncounters] = useState(false);
   const [error, setError] = useState<string>('');
 
   const loadCampaign = useCallback(async () => {
@@ -220,6 +249,21 @@ export function CampaignDetail() {
       setSessions(sessions.filter((s) => s.id !== sessionId));
     } catch (error) {
       console.error('Failed to delete session:', error);
+    }
+  };
+
+  const handleAddEncounters = async (mapId: string, encounterConfig: EncounterConfig) => {
+    setGeneratingEncounters(true);
+    setError('');
+    try {
+      const { map: updatedMap } = await api.addEncountersToMap(id!, mapId, encounterConfig);
+      setMaps(maps.map(m => m.id === mapId ? updatedMap : m));
+      setAddingEncounters(null);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to add encounters';
+      setError(errorMsg);
+    } finally {
+      setGeneratingEncounters(false);
     }
   };
 
@@ -865,6 +909,13 @@ export function CampaignDetail() {
                         ⬇ Export JSON
                       </button>
                     )}
+                    <button
+                      onClick={() => setAddingEncounters(addingEncounters === map.id ? null : map.id)}
+                      className="text-xs bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors"
+                      title="Add encounters to this map"
+                    >
+                      {addingEncounters === map.id ? 'Cancel' : '+ Add Encounters'}
+                    </button>
                     <span className="text-xs text-gray-500">
                       {new Date(map.createdAt).toLocaleDateString()}
                     </span>
@@ -1029,6 +1080,16 @@ export function CampaignDetail() {
                       </div>
                     )}
                   </div>
+                )}
+
+                {addingEncounters === map.id && (
+                  <AddEncounterForm
+                    partySize={campaign?.playerCount || 4}
+                    partyLevel={campaign?.partyLevel || 3}
+                    generating={generatingEncounters}
+                    onSubmit={(config) => handleAddEncounters(map.id, config)}
+                    onCancel={() => setAddingEncounters(null)}
+                  />
                 )}
               </div>
             ))}
@@ -1261,6 +1322,8 @@ function MapGenerationForm({
   const [encounterDifficulty, setEncounterDifficulty] = useState<'easy' | 'medium' | 'hard' | 'deadly'>('medium');
   const [customPartySize, setCustomPartySize] = useState(partySize);
   const [customPartyLevel, setCustomPartyLevel] = useState(partyLevel);
+  const [monsterType, setMonsterType] = useState('');
+  const [monstersPerEncounter, setMonstersPerEncounter] = useState(0);
   const [showCRCalculator, setShowCRCalculator] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string>('');
 
@@ -1274,6 +1337,8 @@ function MapGenerationForm({
           difficulty: encounterDifficulty,
           partyLevel: customPartyLevel,
           partySize: customPartySize,
+          monsterType: monsterType || undefined,
+          monstersPerEncounter: monstersPerEncounter || undefined,
         }
       : undefined;
 
@@ -1402,6 +1467,43 @@ function MapGenerationForm({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-1">
+                      Monster Type (Optional)
+                    </label>
+                    <select
+                      value={monsterType}
+                      onChange={(e) => setMonsterType(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+                    >
+                      {MONSTER_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">
+                      Monsters per Encounter
+                    </label>
+                    <select
+                      value={monstersPerEncounter}
+                      onChange={(e) => setMonstersPerEncounter(parseInt(e.target.value))}
+                      className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+                    >
+                      <option value="0">Auto (AI decides)</option>
+                      <option value="1">1 (Boss fight)</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                      <option value="6">6+</option>
+                    </select>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 italic">
+                  {SUGGESTED_COUNTS[encounterDifficulty]}
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">
                       Party Size (defaults to {partySize})
                     </label>
                     <input
@@ -1454,5 +1556,161 @@ function MapGenerationForm({
         />
       )}
     </>
+  );
+}
+
+/* --- AddEncounterForm Component --- */
+
+function AddEncounterForm({
+  partySize,
+  partyLevel,
+  generating,
+  onSubmit,
+  onCancel,
+}: {
+  partySize: number;
+  partyLevel: number;
+  generating: boolean;
+  onSubmit: (config: EncounterConfig) => void;
+  onCancel: () => void;
+}) {
+  const [count, setCount] = useState(2);
+  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard' | 'deadly'>('medium');
+  const [customPartySize, setCustomPartySize] = useState(partySize);
+  const [customPartyLevel, setCustomPartyLevel] = useState(partyLevel);
+  const [monsterType, setMonsterType] = useState('');
+  const [monstersPerEncounter, setMonstersPerEncounter] = useState(0);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit({
+      count,
+      difficulty,
+      partyLevel: customPartyLevel,
+      partySize: customPartySize,
+      monsterType: monsterType || undefined,
+      monstersPerEncounter: monstersPerEncounter || undefined,
+    });
+  };
+
+  return (
+    <div className="mt-4 bg-red-900/20 rounded-lg p-4 border border-red-800/50">
+      <h4 className="text-sm font-medium text-red-300 mb-3">Add Encounters to This Map</h4>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Number of Encounters
+            </label>
+            <select
+              value={count}
+              onChange={(e) => setCount(parseInt(e.target.value))}
+              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+            >
+              <option value="1">1 Encounter</option>
+              <option value="2">2 Encounters</option>
+              <option value="3">3 Encounters</option>
+              <option value="4">4 Encounters</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Difficulty
+            </label>
+            <select
+              value={difficulty}
+              onChange={(e) => setDifficulty(e.target.value as any)}
+              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+            >
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+              <option value="deadly">Deadly</option>
+            </select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Monster Type (Optional)
+            </label>
+            <select
+              value={monsterType}
+              onChange={(e) => setMonsterType(e.target.value)}
+              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+            >
+              {MONSTER_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Monsters per Encounter
+            </label>
+            <select
+              value={monstersPerEncounter}
+              onChange={(e) => setMonstersPerEncounter(parseInt(e.target.value))}
+              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+            >
+              <option value="0">Auto (AI decides)</option>
+              <option value="1">1 (Boss fight)</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6+</option>
+            </select>
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 italic">
+          {SUGGESTED_COUNTS[difficulty]}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Party Size
+            </label>
+            <input
+              type="number"
+              value={customPartySize}
+              onChange={(e) => setCustomPartySize(parseInt(e.target.value) || partySize)}
+              min={1}
+              max={10}
+              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Party Level
+            </label>
+            <input
+              type="number"
+              value={customPartyLevel}
+              onChange={(e) => setCustomPartyLevel(parseInt(e.target.value) || partyLevel)}
+              min={1}
+              max={20}
+              className="w-full px-3 py-2 bg-gray-600 border border-gray-500 rounded focus:outline-none focus:border-blue-500 text-sm"
+            />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={generating}
+            className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium text-sm disabled:opacity-50"
+          >
+            {generating ? 'Generating Encounters...' : 'Generate & Add Encounters'}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 text-gray-400 hover:text-white text-sm"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }

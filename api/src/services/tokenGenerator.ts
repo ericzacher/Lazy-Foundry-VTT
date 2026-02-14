@@ -9,7 +9,7 @@ const TOKENS_DIR = join(ASSETS_DIR, 'tokens');
 
 // Foundry VTT creature size to grid units mapping
 const SIZE_TO_GRID_UNITS: Record<string, number> = {
-  tiny: 0.5,
+  tiny: 1,
   small: 1,
   medium: 1,
   large: 2,

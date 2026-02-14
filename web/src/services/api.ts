@@ -220,6 +220,8 @@ class ApiService {
       difficulty: 'easy' | 'medium' | 'hard' | 'deadly';
       partyLevel: number;
       partySize: number;
+      monsterType?: string;
+      monstersPerEncounter?: number;
     },
     mapSize?: 'small' | 'medium' | 'large'
   ): Promise<{ map: MapData }> {
@@ -253,6 +255,24 @@ class ApiService {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  // Add encounters to existing map
+  async addEncountersToMap(
+    campaignId: string,
+    mapId: string,
+    encounterConfig: {
+      count: number;
+      difficulty: 'easy' | 'medium' | 'hard' | 'deadly';
+      partyLevel: number;
+      partySize: number;
+      monsterType?: string;
+    }
+  ): Promise<{ map: MapData; encounters: unknown[] }> {
+    return this.request(`/api/generate/campaigns/${campaignId}/maps/${mapId}/encounters`, {
+      method: 'POST',
+      body: JSON.stringify({ encounterConfig }),
+    });
   }
 
   // Encounters

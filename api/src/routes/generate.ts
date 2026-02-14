@@ -344,6 +344,8 @@ router.post(
     body('encounterConfig.difficulty').optional().isIn(['easy', 'medium', 'hard', 'deadly']),
     body('encounterConfig.partyLevel').optional().isInt({ min: 1, max: 20 }),
     body('encounterConfig.partySize').optional().isInt({ min: 1, max: 10 }),
+    body('encounterConfig.monsterType').optional().isString(),
+    body('encounterConfig.monstersPerEncounter').optional().isInt({ min: 1, max: 12 }),
   ],
   async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
@@ -383,7 +385,9 @@ Tone: ${campaign.tone || 'Balanced'}
       // Generate detailed encounters if requested
       let generatedEncounters: any[] = [];
       if (encounterConfig) {
-        const encounterType = `${encounterConfig.difficulty} ${mapType} encounters`;
+        const monsterTypeHint = encounterConfig.monsterType ? ` featuring ${encounterConfig.monsterType} creatures` : '';
+        const monsterCountHint = encounterConfig.monstersPerEncounter ? ` with approximately ${encounterConfig.monstersPerEncounter} monsters each` : '';
+        const encounterType = `${encounterConfig.difficulty} ${mapType} encounters${monsterTypeHint}${monsterCountHint}`;
         const encounters = await generateDetailedEncounters(
           campaignContext,
           encounterConfig.partyLevel,
@@ -836,6 +840,113 @@ router.post(
     } catch (error) {
       console.error('Generate continuity scenario error:', error);
       res.status(500).json({ error: 'Failed to generate continuity scenario' });
+    }
+  }
+);
+
+// Add encounters to an existing map
+router.post(
+  '/campaigns/:id/maps/:mapId/encounters',
+  [
+    param('id').isUUID(),
+    param('mapId').isUUID(),
+    body('encounterConfig').isObject(),
+    body('encounterConfig.count').isInt({ min: 1, max: 10 }),
+    body('encounterConfig.difficulty').isIn(['easy', 'medium', 'hard', 'deadly']),
+    body('encounterConfig.partyLevel').optional().isInt({ min: 1, max: 20 }),
+    body('encounterConfig.partySize').optional().isInt({ min: 1, max: 10 }),
+    body('encounterConfig.monsterType').optional().isString(),
+    body('encounterConfig.monstersPerEncounter').optional().isInt({ min: 1, max: 12 }),
+  ],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const map = await mapRepository().findOne({
+        where: { id: req.params.mapId, campaignId: campaign.id },
+      });
+
+      if (!map) {
+        res.status(404).json({ error: 'Map not found' });
+        return;
+      }
+
+      const { encounterConfig } = req.body;
+
+      const campaignContext = `
+Campaign: ${campaign.name}
+Setting: ${campaign.setting || 'Fantasy'}
+Theme: ${campaign.theme || 'Adventure'}
+Tone: ${campaign.tone || 'Balanced'}
+      `.trim();
+
+      const monsterTypeHint = encounterConfig.monsterType ? ` featuring ${encounterConfig.monsterType} creatures` : '';
+      const monsterCountHint = encounterConfig.monstersPerEncounter ? ` with approximately ${encounterConfig.monstersPerEncounter} monsters each` : '';
+      const encounterType = `${encounterConfig.difficulty} ${map.type || 'dungeon'} encounters${monsterTypeHint}${monsterCountHint}`;
+
+      const encounters = await generateDetailedEncounters(
+        campaignContext,
+        encounterConfig.partyLevel || campaign.partyLevel || 1,
+        encounterConfig.partySize || campaign.playerCount || 4,
+        encounterType
+      );
+
+      const generatedEncounters = encounters.slice(0, encounterConfig.count);
+      console.log(`[Add Encounters] Generated ${generatedEncounters.length} encounters for map "${map.name}"`);
+
+      // Save encounter enemies as NPC entities (monsters)
+      const seenEnemyNames = new Set<string>();
+      for (const encounter of generatedEncounters) {
+        if (encounter.enemies) {
+          for (const enemy of encounter.enemies) {
+            if (seenEnemyNames.has(enemy.name)) continue;
+            seenEnemyNames.add(enemy.name);
+
+            const npcEntity = npcRepository().create({
+              campaignId: campaign.id,
+              name: enemy.name,
+              role: 'Monster',
+              description: `${enemy.tactics || ''}\n\nFrom encounter: ${encounter.name}`.trim(),
+              stats: {
+                hitPoints: enemy.hitPoints,
+                armorClass: enemy.armorClass,
+                challengeRating: enemy.cr,
+                size: inferEnemySize(enemy),
+                abilities: enemy.abilities || [],
+              } as unknown as Record<string, unknown>,
+              motivations: [],
+            });
+            await npcRepository().save(npcEntity);
+          }
+        }
+      }
+      console.log(`[Add Encounters] Created ${seenEnemyNames.size} monster NPCs`);
+
+      // Append new encounters to existing map details
+      const mapDetails = (map.details as any) || {};
+      const existingEncounters = mapDetails.encounters || [];
+      mapDetails.encounters = [...existingEncounters, ...generatedEncounters];
+      map.details = mapDetails;
+      await mapRepository().save(map);
+
+      res.json({ map, encounters: generatedEncounters });
+    } catch (error) {
+      console.error('Add encounters error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to add encounters';
+      res.status(500).json({ error: 'Failed to add encounters', details: errorMessage });
     }
   }
 );

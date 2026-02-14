@@ -1,15 +1,15 @@
 import { AppDataSource } from '../config/database';
 import { Session } from '../entities/Session';
-import { Map } from '../entities/Map';
+import { Map as MapEntity } from '../entities/Map';
 import { FoundrySyncService } from './foundrySync';
 import { GeneratedEncounter } from './ai';
 
 const sessionRepository = () => AppDataSource.getRepository(Session);
-const mapRepository = () => AppDataSource.getRepository(Map);
+const mapRepository = () => AppDataSource.getRepository(MapEntity);
 
 // Size to grid units mapping
 const SIZE_TO_GRID_UNITS: Record<string, number> = {
-  tiny: 0.5,
+  tiny: 1,
   small: 1,
   medium: 1,
   large: 2,
@@ -47,10 +47,19 @@ interface RoomData {
 
 export interface EncounterTokenPlacement {
   actorId: string;
+  tokenId?: string;
   tokenName: string;
+  encounterIndex: number;
+  encounterName: string;
   x: number;
   y: number;
   enemy: ExpandedEnemy;
+}
+
+export interface CreatedCombat {
+  combatId: string;
+  encounterName: string;
+  combatantCount: number;
 }
 
 // ============================================================
@@ -124,8 +133,9 @@ function expandEnemyCount(enemies: Array<{
 }
 
 /**
- * Select rooms for encounter placement
- * Filters rooms by minimum size and sorts by distance from origin
+ * Select rooms for encounter placement.
+ * Ensures each encounter gets a DIFFERENT room when possible.
+ * Sorts rooms by size (largest first) so bigger fights get bigger rooms.
  */
 function selectRoomsForEncounters(
   rooms: RoomData[],
@@ -134,24 +144,50 @@ function selectRoomsForEncounters(
   // Skip the first room (player spawn area)
   const availableRooms = rooms.slice(1);
 
-  // Filter rooms by minimum size (4x4 grid units)
-  const suitable = availableRooms.filter(
-    (r) => r.width >= 4 && r.height >= 4
-  );
-
-  if (suitable.length === 0) {
-    // Fallback to all available rooms if none are large enough
-    return availableRooms.slice(0, encounterCount);
+  if (availableRooms.length === 0) {
+    console.warn('[EncounterPlacement] No rooms available after skipping spawn room');
+    return [];
   }
 
-  // Sort by distance from origin (furthest first for enemy placement)
-  const sorted = suitable.sort((a, b) => {
-    const distA = Math.sqrt(a.centerX ** 2 + a.centerY ** 2);
-    const distB = Math.sqrt(b.centerX ** 2 + b.centerY ** 2);
-    return distB - distA;
-  });
+  // Prefer rooms >= 3x3 (relaxed from 4x4 to include more rooms)
+  let candidates = availableRooms.filter(
+    (r) => r.width >= 3 && r.height >= 3
+  );
 
-  return sorted.slice(0, Math.min(sorted.length, encounterCount));
+  // If not enough suitable rooms, include all rooms
+  if (candidates.length < encounterCount) {
+    candidates = availableRooms;
+  }
+
+  // Sort by room area (largest first) so encounters fit better
+  candidates.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+
+  // If we have enough rooms, return one per encounter (no sharing)
+  if (candidates.length >= encounterCount) {
+    // Spread encounters across different rooms by spacing them out
+    const step = Math.max(1, Math.floor(candidates.length / encounterCount));
+    const selected: RoomData[] = [];
+    for (let i = 0; i < encounterCount; i++) {
+      const idx = Math.min(i * step, candidates.length - 1);
+      // Avoid duplicates if step causes overlap
+      const room = candidates[idx] && !selected.includes(candidates[idx])
+        ? candidates[idx]
+        : candidates.find((r) => !selected.includes(r));
+      if (room) selected.push(room);
+    }
+
+    console.log(
+      `[EncounterPlacement] Selected ${selected.length} unique room(s) for ${encounterCount} encounter(s) ` +
+      `(from ${candidates.length} candidates, ${availableRooms.length} total rooms)`
+    );
+    return selected;
+  }
+
+  // Fewer rooms than encounters — return all and let round-robin handle it
+  console.log(
+    `[EncounterPlacement] Only ${candidates.length} room(s) for ${encounterCount} encounter(s), some will share`
+  );
+  return candidates;
 }
 
 /**
@@ -252,7 +288,7 @@ function createActorFromEnemy(enemy: ExpandedEnemy): {
  * This is the primary path used by bulk sync.
  */
 export async function placeEncounterTokensFromMap(
-  map: Map,
+  map: MapEntity,
   foundrySyncService: FoundrySyncService
 ): Promise<EncounterTokenPlacement[]> {
   const placements: EncounterTokenPlacement[] = [];
@@ -376,6 +412,10 @@ export async function placeEncounterTokensFromMap(
         expandedEnemies.length = 12;
       }
       const room = selectedRooms[encIdx % selectedRooms.length];
+      console.log(
+        `[EncounterPlacement] Encounter ${encIdx} "${encounter.name || ''}" → room ${room.id} ` +
+        `(${room.width}x${room.height} at ${room.centerX},${room.centerY})`
+      );
       const positions = calculateTokenPositions(expandedEnemies, room, gridSize);
 
       for (const position of positions) {
@@ -386,12 +426,14 @@ export async function placeEncounterTokensFromMap(
           placements.push({
             actorId: actorResult.data._id,
             tokenName: position.enemy.name,
+            encounterIndex: encIdx,
+            encounterName: encounter.name || `Encounter ${encIdx + 1}`,
             x: position.x,
             y: position.y,
             enemy: position.enemy,
           });
           console.log(
-            `[EncounterPlacement] Created actor for ${position.enemy.name} at (${Math.round(position.x)}, ${Math.round(position.y)})`
+            `[EncounterPlacement] Created actor for ${position.enemy.name} (encounter ${encIdx}) at (${Math.round(position.x)}, ${Math.round(position.y)})`
           );
         } else {
           console.error(
@@ -450,7 +492,7 @@ export async function placeEncounterTokens(
     }
 
     // Find the map associated with this session
-    let targetMap: Map | null = null;
+    let targetMap: MapEntity | null = null;
     if (session.mapIds?.length > 0) {
       for (const mapId of session.mapIds) {
         const map = await mapRepository().findOne({
@@ -545,12 +587,14 @@ export async function placeEncounterTokens(
           placements.push({
             actorId: actorResult.data._id,
             tokenName: position.enemy.name,
+            encounterIndex: encIdx,
+            encounterName: encounter.name || `Encounter ${encIdx + 1}`,
             x: position.x,
             y: position.y,
             enemy: position.enemy,
           });
           console.log(
-            `[EncounterPlacement] Created actor for ${position.enemy.name} at (${Math.round(position.x)}, ${Math.round(position.y)})`
+            `[EncounterPlacement] Created actor for ${position.enemy.name} (encounter ${encIdx}) at (${Math.round(position.x)}, ${Math.round(position.y)})`
           );
         } else {
           console.error(
@@ -569,4 +613,118 @@ export async function placeEncounterTokens(
   }
 
   return placements;
+}
+
+// ============================================================
+// Combat Encounter Creation
+// ============================================================
+
+/**
+ * Create Foundry Combat encounters from placed tokens on a map.
+ *
+ * Groups placements by their encounterIndex (set during placement),
+ * creates a Combat document for each encounter, and adds all
+ * placed tokens as Combatants in the combat tracker.
+ *
+ * @param map - The map entity with foundrySceneId and encounters in details
+ * @param placements - Token placements returned from placeEncounterTokensFromMap
+ * @param foundrySyncService - The Foundry sync service instance
+ * @returns Array of created Combat encounter references
+ */
+export async function createCombatEncounters(
+  map: MapEntity,
+  placements: EncounterTokenPlacement[],
+  foundrySyncService: FoundrySyncService
+): Promise<CreatedCombat[]> {
+  const createdCombats: CreatedCombat[] = [];
+
+  if (!map.foundrySceneId || placements.length === 0) {
+    return createdCombats;
+  }
+
+  try {
+    // Group placements by encounterIndex — this is set during placement
+    // and survives even if some actors/tokens fail to create
+    const encounterGroups = new globalThis.Map<number, {
+      name: string;
+      placements: EncounterTokenPlacement[];
+    }>();
+
+    for (const placement of placements) {
+      const idx = placement.encounterIndex;
+      if (!encounterGroups.has(idx)) {
+        encounterGroups.set(idx, {
+          name: placement.encounterName,
+          placements: [],
+        });
+      }
+      encounterGroups.get(idx)!.placements.push(placement);
+    }
+
+    console.log(
+      `[EncounterPlacement] Grouped ${placements.length} placement(s) into ${encounterGroups.size} encounter(s)`
+    );
+
+    // Create a Combat for each encounter group that has placements with tokenIds
+    for (const [encIdx, group] of encounterGroups) {
+      const validPlacements = group.placements.filter((p) => p.tokenId && p.actorId);
+
+      if (validPlacements.length === 0) {
+        console.log(
+          `[EncounterPlacement] Skipping combat for "${group.name}" (enc ${encIdx}): no placements with tokenIds`
+        );
+        continue;
+      }
+
+      // Create the Combat document
+      const combatResult = await foundrySyncService.createCombat(map.foundrySceneId);
+
+      if (!combatResult.success || !combatResult.data?._id) {
+        console.error(
+          `[EncounterPlacement] Failed to create combat for "${group.name}":`,
+          combatResult.error
+        );
+        continue;
+      }
+
+      const combatId = combatResult.data._id;
+
+      // Add all tokens as combatants
+      const combatantData = validPlacements.map((p) => ({
+        actorId: p.actorId,
+        tokenId: p.tokenId!,
+        sceneId: map.foundrySceneId!,
+        name: p.tokenName,
+      }));
+
+      const combatantResult = await foundrySyncService.createCombatants(
+        combatId,
+        combatantData
+      );
+
+      if (combatantResult.success) {
+        createdCombats.push({
+          combatId,
+          encounterName: group.name,
+          combatantCount: validPlacements.length,
+        });
+        console.log(
+          `[EncounterPlacement] Combat "${group.name}" created with ${validPlacements.length} combatant(s)`
+        );
+      } else {
+        console.error(
+          `[EncounterPlacement] Failed to add combatants to combat "${group.name}":`,
+          combatantResult.error
+        );
+      }
+    }
+
+    console.log(
+      `[EncounterPlacement] Created ${createdCombats.length} combat encounter(s) for map "${map.name}"`
+    );
+  } catch (error) {
+    console.error('[EncounterPlacement] Error creating combat encounters:', error);
+  }
+
+  return createdCombats;
 }

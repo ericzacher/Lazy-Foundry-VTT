@@ -7,7 +7,7 @@ import { NPC } from '../entities/NPC';
 import { Token } from '../entities/Token';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { foundrySyncService } from '../services/foundrySync';
-import { placeEncounterTokensFromMap } from '../services/encounterPlacement';
+import { placeEncounterTokensFromMap, createCombatEncounters } from '../services/encounterPlacement';
 
 const router = Router();
 
@@ -128,10 +128,41 @@ router.post(
       map.syncStatus = 'synced';
       await mapRepository().save(map);
 
+      // Place encounter tokens and create Combat encounters if the map has encounters
+      let combatResults: Array<{ combatId: string; encounterName: string; combatantCount: number }> = [];
+      const mapDetails = map.details as any;
+      const encounters = mapDetails?.encounters || [];
+
+      if (encounters.length > 0 && map.foundrySceneId) {
+        const placements = await placeEncounterTokensFromMap(map, foundrySyncService);
+
+        for (const placement of placements) {
+          const gridUnits = SIZE_TO_GRID_UNITS[placement.enemy?.size || 'medium'] || 1;
+          const tokenResult = await foundrySyncService.createToken(
+            map.foundrySceneId,
+            {
+              name: placement.tokenName,
+              x: placement.x,
+              y: placement.y,
+              width: gridUnits,
+              height: gridUnits,
+              disposition: -1,
+              actorId: placement.actorId,
+            }
+          );
+          if (tokenResult.success) {
+            placement.tokenId = tokenResult.data?._id;
+          }
+        }
+
+        combatResults = await createCombatEncounters(map, placements, foundrySyncService);
+      }
+
       res.json({
         success: true,
         message: 'Map synced to Foundry VTT',
         foundrySceneId: result.data?._id,
+        combats: combatResults,
       });
     } catch (error) {
       console.error('Sync map error:', error);
@@ -309,7 +340,7 @@ router.post(
 
 // Size to grid units mapping for token placement
 const SIZE_TO_GRID_UNITS: Record<string, number> = {
-  tiny: 0.5,
+  tiny: 1,
   small: 1,
   medium: 1,
   large: 2,
@@ -343,6 +374,7 @@ router.post(
         actors: { success: 0, failed: 0 },
         journals: { success: 0, failed: 0 },
         tokens: { success: 0, failed: 0 },
+        combats: { success: 0, failed: 0, combatants: 0 },
         skippedMaps: [] as Array<{ name: string; reason: string }>,
       };
 
@@ -456,6 +488,7 @@ router.post(
               foundrySyncService
             );
 
+            // Create tokens on the scene and capture tokenIds for combat creation
             for (const placement of placements) {
               const gridUnits =
                 SIZE_TO_GRID_UNITS[placement.enemy?.size || 'medium'] || 1;
@@ -475,6 +508,8 @@ router.post(
 
               if (tokenResult.success) {
                 results.tokens.success++;
+                // Store the Foundry token ID so we can link it to a Combatant
+                placement.tokenId = tokenResult.data?._id;
               } else {
                 results.tokens.failed++;
                 console.error(
@@ -487,6 +522,24 @@ router.post(
             console.log(
               `[Bulk Sync] Token placement for "${syncedMap.name}": ${placements.length} actor(s) created`
             );
+
+            // Create Combat encounters in Foundry's combat tracker
+            const combats = await createCombatEncounters(
+              syncedMap,
+              placements,
+              foundrySyncService
+            );
+
+            for (const combat of combats) {
+              results.combats.success++;
+              results.combats.combatants += combat.combatantCount;
+            }
+
+            if (combats.length > 0) {
+              console.log(
+                `[Bulk Sync] Created ${combats.length} combat encounter(s) for "${syncedMap.name}"`
+              );
+            }
           } catch (error) {
             console.error(`[Bulk Sync] Token placement failed for map "${syncedMap.name}":`, error);
           }
@@ -495,6 +548,9 @@ router.post(
 
       console.log(
         `[Bulk Sync] Token placement complete: ${results.tokens.success} success, ${results.tokens.failed} failed`
+      );
+      console.log(
+        `[Bulk Sync] Combat encounters: ${results.combats.success} created with ${results.combats.combatants} combatant(s)`
       );
 
       // Sync campaign lore
