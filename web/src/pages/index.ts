@@ -4,3 +4,5 @@ export { Dashboard } from './Dashboard';
 export { CampaignDetail } from './CampaignDetail';
 export { SessionDetail } from './SessionDetail';
 export { ManageCampaign } from './ManageCampaign';
+export { CharacterCreator } from './CharacterCreator';
+export { StoreGenerator } from './StoreGenerator';

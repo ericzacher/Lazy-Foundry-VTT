@@ -360,6 +360,12 @@ export function CampaignDetail() {
               >
                 {generatingNPCs ? 'Generating...' : 'Generate NPCs'}
               </button>
+              <Link
+                to={`/store-generator?campaignId=${id}`}
+                className="px-4 py-2 bg-yellow-700 hover:bg-yellow-600 rounded font-medium text-white"
+              >
+                🏪 Generate Store
+              </Link>
               {foundryStatus === 'connected' && (
                 <button
                   onClick={() => handleBulkSyncCampaign()}

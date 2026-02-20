@@ -61,6 +61,12 @@ export interface CompendiumMatch {
   name: string;
 }
 
+export interface WorldUser {
+  _id: string;
+  name: string;
+  role: number; // 1=Player, 2=Trusted, 3=Assistant, 4=Gamemaster
+}
+
 export class FoundrySyncService {
   private baseUrl: string;
   private adminPassword: string;
@@ -70,6 +76,8 @@ export class FoundrySyncService {
   private gmUserId: string | null = null;
   private connected = false;
   private compendiumCache: Map<string, CompendiumEntry[]> = new Map();
+  private itemCompendiumCache: Map<string, Record<string, unknown>[]> = new Map();
+  private worldUsersCache: WorldUser[] = [];
 
   constructor() {
     this.baseUrl = FOUNDRY_URL;
@@ -297,6 +305,9 @@ export class FoundrySyncService {
 
       console.log(`[FoundrySync] Found ${users.length} user(s) in world`);
 
+      // Cache all users for player assignment feature
+      this.worldUsersCache = users;
+
       // Find the Gamemaster (role 4 = GAMEMASTER)
       const gm = users.find((u) => u.role === 4);
       if (!gm) {
@@ -512,6 +523,50 @@ export class FoundrySyncService {
     }
   }
 
+  /**
+   * Search an Item compendium pack by name, returning the full item document.
+   * Used to embed class, subclass, and equipment items when creating PC actors.
+   * Caches the full pack on first call; subsequent lookups are in-memory.
+   * Returns null if the pack fails to load or the item is not found.
+   */
+  async findCompendiumItem(pack: string, name: string): Promise<Record<string, unknown> | null> {
+    try {
+      await this.ensureConnected();
+
+      if (!this.itemCompendiumCache.has(pack)) {
+        console.log(`[FoundrySync] Loading item compendium "${pack}"...`);
+        const result = await this.emitAndWait('modifyDocument', {
+          action: 'get',
+          type: 'Item',
+          operation: { query: {}, pack, broadcast: false },
+        }, 30000);
+
+        if (result.error) {
+          console.warn(`[FoundrySync] Failed to load item compendium "${pack}":`, result.error.message);
+          this.itemCompendiumCache.set(pack, []); // cache empty to avoid repeated retries
+          return null;
+        }
+
+        const entries = (result.result as Record<string, unknown>[]) || [];
+        this.itemCompendiumCache.set(pack, entries);
+        console.log(`[FoundrySync] Cached ${entries.length} items from "${pack}"`);
+      }
+
+      const entries = this.itemCompendiumCache.get(pack)!;
+      const searchName = name.toLowerCase().trim();
+      const match = entries.find(e => (e.name as string)?.toLowerCase() === searchName);
+
+      if (match) {
+        console.log(`[FoundrySync] Item match: "${name}" in "${pack}"`);
+      }
+
+      return match ?? null;
+    } catch (error) {
+      console.warn(`[FoundrySync] Item lookup failed "${name}" in "${pack}":`, error);
+      return null;
+    }
+  }
+
   // ─── Public API ───────────────────────────────────────────────
 
   /**
@@ -663,6 +718,15 @@ export class FoundrySyncService {
   /**
    * Create an actor (NPC) in Foundry VTT.
    */
+  getWorldUsers(): WorldUser[] {
+    return this.worldUsersCache;
+  }
+
+  getPlayerUsers(): WorldUser[] {
+    // roles: 1=Player, 2=Trusted Player, 3=Assistant GM — exclude GM (4)
+    return this.worldUsersCache.filter(u => u.role < 4);
+  }
+
   async createActor(actorData: {
     name: string;
     type: string;
@@ -673,6 +737,8 @@ export class FoundrySyncService {
       height?: number;
     };
     system?: Record<string, unknown>;
+    ownership?: Record<string, number>;
+    items?: unknown[];
   }): Promise<FoundryResponse<{ _id: string }>> {
     try {
       await this.ensureConnected();

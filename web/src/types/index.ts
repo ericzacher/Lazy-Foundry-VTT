@@ -254,6 +254,67 @@ export interface PlayerBackground {
   reasonsForAdventure: string;
 }
 
+export interface AbilityScores {
+  str: number;
+  dex: number;
+  con: number;
+  int: number;
+  wis: number;
+  cha: number;
+}
+
+export interface CharacterData {
+  name: string;
+  race: string;
+  subrace?: string;
+  class: string;
+  subclass?: string;
+  background: string;
+  abilityScores: AbilityScores;
+  chosenSkills: string[];       // Foundry skill keys e.g. ['acr', 'ste']
+  alignment: string;
+  backstory: string;
+  personalityTraits?: string[];
+  ideals?: string;
+  bonds?: string;
+  flaws?: string;
+  startingEquipment: string[];  // item name strings
+  startingGold: number;
+  scoreMethod: 'standard' | 'pointbuy';
+  hpRoll?: number;              // if set, use this HP instead of max hit die
+  foundryUserId?: string;       // Foundry player _id to assign actor ownership
+}
+
+export interface StoreItem {
+  name: string;
+  category: string;
+  rarity: 'common' | 'uncommon' | 'rare' | 'very rare' | 'legendary';
+  quantity: number;
+  priceGp: number;
+  isMagic: boolean;
+  description?: string;
+}
+
+export interface StoreData {
+  id: string;
+  campaignId?: string;
+  name: string;
+  shopkeeperName: string;
+  shopkeeperRace: string;
+  shopkeeperPersonality: string;
+  description: string;
+  storeType: string;
+  settlementSize: string;
+  racialInfluence: string;
+  biome: string;
+  inventory: StoreItem[];
+  totalValue: number;
+  foundryJournalId?: string;
+  itemCount?: number;   // summary-only
+  parameters?: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface TokenData {
   id: string;
   campaignId: string;

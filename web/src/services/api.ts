@@ -1,4 +1,4 @@
-import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData, CampaignSummary, TimelineEvent, NPCHistoryEntry, NPCStatus } from '../types';
+import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData, CampaignSummary, TimelineEvent, NPCHistoryEntry, NPCStatus, CharacterData, StoreData } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -431,6 +431,76 @@ class ApiService {
     campaignId: string
   ): Promise<{ statuses: Record<string, NPCStatus> }> {
     return this.request(`/api/campaigns/${campaignId}/npc-status`);
+  }
+
+  // Character Creator (public — no auth token required)
+  async getFoundryPlayers(): Promise<{ success: boolean; players: Array<{ _id: string; name: string; role: number }> }> {
+    return this.request('/api/characters/foundry-players');
+  }
+
+  async syncCharacterToFoundry(data: CharacterData): Promise<{ success: boolean; foundryActorId: string; name: string }> {
+    return this.request('/api/characters/sync', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async generateAICharacter(concept: string): Promise<{ success: boolean; character: CharacterData }> {
+    return this.request('/api/characters/generate-ai', {
+      method: 'POST',
+      body: JSON.stringify({ concept }),
+    });
+  }
+
+  async generateCharacterLore(data: {
+    name?: string;
+    race: string;
+    subrace?: string;
+    class: string;
+    subclass?: string;
+    background: string;
+    alignment: string;
+  }): Promise<{ success: boolean; backstory: string; personalityTraits: string[]; ideals: string; bonds: string; flaws: string }> {
+    return this.request('/api/characters/generate-lore', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Stores
+  async generateStore(params: {
+    settlementSize: string;
+    storeType: string;
+    racialInfluence: string;
+    biome: string;
+    maxRarity?: string;
+    stockSize?: string;
+    magicItems?: boolean;
+    campaignId?: string;
+    locationName?: string;
+    campaignContext?: { setting?: string; theme?: string; tone?: string; worldSummary?: string };
+  }): Promise<{ success: boolean; store: StoreData }> {
+    return this.request('/api/stores/generate', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  async getStores(campaignId?: string): Promise<{ stores: StoreData[] }> {
+    const qs = campaignId ? `?campaignId=${campaignId}` : '';
+    return this.request(`/api/stores${qs}`);
+  }
+
+  async getStore(id: string): Promise<{ store: StoreData }> {
+    return this.request(`/api/stores/${id}`);
+  }
+
+  async deleteStore(id: string): Promise<void> {
+    return this.request<void>(`/api/stores/${id}`, { method: 'DELETE' });
+  }
+
+  async exportStoreToFoundry(id: string): Promise<{ success: boolean; foundryJournalId: string }> {
+    return this.request(`/api/stores/${id}/foundry-export`, { method: 'POST' });
   }
 
   async generateContinuityScenario(

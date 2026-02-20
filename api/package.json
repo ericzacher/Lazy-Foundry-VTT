@@ -8,8 +8,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typeorm": "typeorm-ts-node-commonjs",
-    "migration:run": "typeorm-ts-node-commonjs migration:run -d src/config/database.ts",
-    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/config/database.ts"
+    "migration:run": "tsx node_modules/typeorm/cli.js migration:run -d src/config/database.ts",
+    "migration:generate": "tsx node_modules/typeorm/cli.js migration:generate -d src/config/database.ts",
+    "migration:revert": "tsx node_modules/typeorm/cli.js migration:revert -d src/config/database.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

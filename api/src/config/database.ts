@@ -8,13 +8,14 @@ import { Map } from '../entities/Map';
 import { Token } from '../entities/Token';
 import { NPCHistory } from '../entities/NPCHistory';
 import { TimelineEvent } from '../entities/TimelineEvent';
+import { Store } from '../entities/Store';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
   synchronize: process.env.NODE_ENV === 'development', // Never true in production
   logging: process.env.NODE_ENV === 'development',
-  entities: [User, Campaign, Session, SessionResult, NPC, Map, Token, NPCHistory, TimelineEvent],
+  entities: [User, Campaign, Session, SessionResult, NPC, Map, Token, NPCHistory, TimelineEvent, Store],
   migrations: ['src/migrations/*.ts'],
   subscribers: [],
   

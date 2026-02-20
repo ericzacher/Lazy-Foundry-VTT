@@ -5,3 +5,4 @@ export { SessionResult } from './SessionResult';
 export { NPC } from './NPC';
 export { Map, MapType } from './Map';
 export { Token } from './Token';
+export { Store } from './Store';
