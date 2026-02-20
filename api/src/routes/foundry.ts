@@ -596,6 +596,36 @@ router.post(
   }
 );
 
+// Delete a scene directly from Foundry by its Foundry ID
+router.delete('/scenes/:sceneId', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const result = await foundrySyncService.deleteScene(req.params.sceneId);
+    if (!result.success) {
+      res.status(500).json({ error: result.error || 'Failed to delete scene from Foundry' });
+      return;
+    }
+    res.status(204).send();
+  } catch (error) {
+    console.error('Delete Foundry scene error:', error);
+    res.status(500).json({ error: 'Failed to delete scene from Foundry' });
+  }
+});
+
+// Delete an actor directly from Foundry by its Foundry ID
+router.delete('/actors/:actorId', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const result = await foundrySyncService.deleteActor(req.params.actorId);
+    if (!result.success) {
+      res.status(500).json({ error: result.error || 'Failed to delete actor from Foundry' });
+      return;
+    }
+    res.status(204).send();
+  } catch (error) {
+    console.error('Delete Foundry actor error:', error);
+    res.status(500).json({ error: 'Failed to delete actor from Foundry' });
+  }
+});
+
 // Get list of scenes from Foundry
 router.get('/scenes', async (req: AuthRequest, res: Response): Promise<void> => {
   try {

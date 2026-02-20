@@ -6,7 +6,9 @@ import { Session } from '../entities/Session';
 import { NPC } from '../entities/NPC';
 import { Map, MapType } from '../entities/Map';
 import { Token } from '../entities/Token';
+import { NPCHistory } from '../entities/NPCHistory';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { foundrySyncService } from '../services/foundrySync';
 import {
   generateCampaignLore,
   generateNPCs,
@@ -947,6 +949,100 @@ Tone: ${campaign.tone || 'Balanced'}
       console.error('Add encounters error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to add encounters';
       res.status(500).json({ error: 'Failed to add encounters', details: errorMessage });
+    }
+  }
+);
+
+// Delete a single NPC
+router.delete(
+  '/campaigns/:campaignId/npcs/:npcId',
+  [param('campaignId').isUUID(), param('npcId').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.campaignId, ownerId: req.userId! },
+      });
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const npc = await npcRepository().findOne({
+        where: { id: req.params.npcId, campaignId: req.params.campaignId },
+      });
+      if (!npc) {
+        res.status(404).json({ error: 'NPC not found' });
+        return;
+      }
+
+      if (npc.foundryActorId) {
+        try {
+          await foundrySyncService.deleteActor(npc.foundryActorId);
+        } catch (err) {
+          console.warn('[NPC Delete] Foundry actor cleanup failed (continuing):', err);
+        }
+      }
+
+      await AppDataSource.getRepository(NPCHistory).delete({ npcId: npc.id });
+      await tokenRepository().delete({ npcId: npc.id });
+      await npcRepository().remove(npc);
+
+      res.status(204).send();
+    } catch (error) {
+      console.error('Delete NPC error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// Delete a single map
+router.delete(
+  '/campaigns/:campaignId/maps/:mapId',
+  [param('campaignId').isUUID(), param('mapId').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.campaignId, ownerId: req.userId! },
+      });
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const map = await mapRepository().findOne({
+        where: { id: req.params.mapId, campaignId: req.params.campaignId },
+      });
+      if (!map) {
+        res.status(404).json({ error: 'Map not found' });
+        return;
+      }
+
+      if (map.foundrySceneId) {
+        try {
+          await foundrySyncService.deleteScene(map.foundrySceneId);
+        } catch (err) {
+          console.warn('[Map Delete] Foundry scene cleanup failed (continuing):', err);
+        }
+      }
+
+      await mapRepository().remove(map);
+
+      res.status(204).send();
+    } catch (error) {
+      console.error('Delete map error:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 );

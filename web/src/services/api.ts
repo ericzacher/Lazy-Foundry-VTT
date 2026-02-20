@@ -143,6 +143,24 @@ class ApiService {
     });
   }
 
+  async deleteNPC(campaignId: string, npcId: string): Promise<void> {
+    return this.request<void>(`/api/generate/campaigns/${campaignId}/npcs/${npcId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteMap(campaignId: string, mapId: string): Promise<void> {
+    return this.request<void>(`/api/generate/campaigns/${campaignId}/maps/${mapId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteTimelineEvent(campaignId: string, eventId: string): Promise<void> {
+    return this.request<void>(`/api/campaigns/${campaignId}/timeline/${eventId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async finalizeSession(id: string, data: Record<string, unknown>): Promise<unknown> {
     return this.request(`/api/sessions/${id}/finalize`, {
       method: 'POST',
@@ -348,12 +366,24 @@ class ApiService {
     });
   }
 
-  async getFoundryScenes(): Promise<{ scenes: unknown[] }> {
+  async getFoundryScenes(): Promise<{ scenes: Array<{ _id: string; name: string }> }> {
     return this.request('/api/foundry/scenes');
   }
 
-  async getFoundryActors(): Promise<{ actors: unknown[] }> {
+  async getFoundryActors(): Promise<{ actors: Array<{ _id: string; name: string }> }> {
     return this.request('/api/foundry/actors');
+  }
+
+  async deleteFoundryScene(sceneId: string): Promise<void> {
+    return this.request<void>(`/api/foundry/scenes/${sceneId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteFoundryActor(actorId: string): Promise<void> {
+    return this.request<void>(`/api/foundry/actors/${actorId}`, {
+      method: 'DELETE',
+    });
   }
 
   // Phase 5: Session Continuity

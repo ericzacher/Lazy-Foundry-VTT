@@ -317,9 +317,15 @@ export function CampaignDetail() {
   return (
     <div className="min-h-screen">
       <header className="bg-gray-800 border-b border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <Link to="/" className="text-gray-400 hover:text-white text-sm">
             &larr; Back to Dashboard
+          </Link>
+          <Link
+            to={`/campaigns/${id}/manage`}
+            className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-sm text-gray-300 hover:text-white"
+          >
+            Manage &amp; Delete
           </Link>
         </div>
       </header>

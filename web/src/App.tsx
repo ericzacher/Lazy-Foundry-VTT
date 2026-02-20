@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { Login, Register, Dashboard, CampaignDetail, SessionDetail } from './pages';
+import { Login, Register, Dashboard, CampaignDetail, SessionDetail, ManageCampaign } from './pages';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -79,6 +79,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <SessionDetail />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/campaigns/:id/manage"
+        element={
+          <ProtectedRoute>
+            <ManageCampaign />
           </ProtectedRoute>
         }
       />

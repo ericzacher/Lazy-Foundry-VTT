@@ -618,10 +618,24 @@ export class FoundrySyncService {
 
   /**
    * Delete a scene from Foundry VTT.
+   * Checks existence first to avoid crashing Foundry when deleting non-existent documents.
    */
   async deleteScene(sceneId: string): Promise<FoundryResponse> {
     try {
       await this.ensureConnected();
+
+      // Foundry crashes if asked to delete a document that doesn't exist.
+      // Fetch all scenes and confirm this ID is present before attempting deletion.
+      const existing = await this.emitAndWait('modifyDocument', {
+        action: 'get',
+        type: 'Scene',
+        operation: { query: {}, broadcast: false },
+      });
+      const scenes = (existing.result as Array<{ _id: string }>) || [];
+      if (!scenes.some((s) => s._id === sceneId)) {
+        console.log(`[FoundrySync] Scene ${sceneId} not found in Foundry, skipping delete`);
+        return { success: true };
+      }
 
       const result = await this.emitAndWait('modifyDocument', {
         action: 'delete',
@@ -636,6 +650,7 @@ export class FoundrySyncService {
         return { success: false, error: result.error.message };
       }
 
+      console.log(`[FoundrySync] Scene deleted: ${sceneId}`);
       return { success: true };
     } catch (error) {
       return {
@@ -937,6 +952,50 @@ export class FoundrySyncService {
         success: true,
         data: (result.result as Array<{ _id: string; name: string }>) || [],
       };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Delete an actor from Foundry VTT.
+   * Checks existence first to avoid crashing Foundry when deleting non-existent documents.
+   */
+  async deleteActor(actorId: string): Promise<FoundryResponse> {
+    try {
+      await this.ensureConnected();
+
+      // Foundry crashes if asked to delete a document that doesn't exist.
+      // Fetch all actors and confirm this ID is present before attempting deletion.
+      const existing = await this.emitAndWait('modifyDocument', {
+        action: 'get',
+        type: 'Actor',
+        operation: { query: {}, broadcast: false },
+      });
+      const actors = (existing.result as Array<{ _id: string }>) || [];
+      if (!actors.some((a) => a._id === actorId)) {
+        console.log(`[FoundrySync] Actor ${actorId} not found in Foundry, skipping delete`);
+        return { success: true };
+      }
+
+      const result = await this.emitAndWait('modifyDocument', {
+        action: 'delete',
+        type: 'Actor',
+        operation: {
+          ids: [actorId],
+          broadcast: true,
+        },
+      });
+
+      if (result.error) {
+        return { success: false, error: result.error.message };
+      }
+
+      console.log(`[FoundrySync] Actor deleted: ${actorId}`);
+      return { success: true };
     } catch (error) {
       return {
         success: false,

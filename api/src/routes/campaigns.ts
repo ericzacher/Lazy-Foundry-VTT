@@ -1,10 +1,17 @@
 import { Router, Response } from 'express';
 import { body, param, validationResult } from 'express-validator';
+import { In } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { Campaign } from '../entities/Campaign';
 import { NPC } from '../entities/NPC';
+import { Map as MapEntity } from '../entities/Map';
+import { Session } from '../entities/Session';
+import { Token } from '../entities/Token';
+import { NPCHistory } from '../entities/NPCHistory';
+import { SessionResult } from '../entities/SessionResult';
 import { TimelineEvent } from '../entities/TimelineEvent';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { foundrySyncService } from '../services/foundrySync';
 import {
   getCampaignSummary,
   getNPCCurrentStatus,
@@ -171,14 +178,64 @@ router.delete(
     }
 
     try {
+      const campaignId = req.params.id;
+
       const campaign = await campaignRepository().findOne({
-        where: { id: req.params.id, ownerId: req.userId! },
+        where: { id: campaignId, ownerId: req.userId! },
       });
 
       if (!campaign) {
         res.status(404).json({ error: 'Campaign not found' });
         return;
       }
+
+      // Gather Foundry IDs before deleting local records
+      const maps = await AppDataSource.getRepository(MapEntity).find({
+        where: { campaignId },
+        select: ['id', 'foundrySceneId'],
+      });
+      const npcs = await AppDataSource.getRepository(NPC).find({
+        where: { campaignId },
+        select: ['id', 'foundryActorId'],
+      });
+      const sessions = await AppDataSource.getRepository(Session).find({
+        where: { campaignId },
+        select: ['id'],
+      });
+
+      // Delete Foundry VTT items (best-effort — don't block if Foundry is unreachable)
+      const sceneIds: string[] = maps.flatMap((m: MapEntity) => (m.foundrySceneId ? [m.foundrySceneId] : []));
+      const actorIds: string[] = npcs.flatMap((n: NPC) => (n.foundryActorId ? [n.foundryActorId] : []));
+
+      if (sceneIds.length > 0 || actorIds.length > 0) {
+        try {
+          await Promise.all([
+            ...sceneIds.map((id) => foundrySyncService.deleteScene(id)),
+            ...actorIds.map((id) => foundrySyncService.deleteActor(id)),
+          ]);
+          console.log(
+            `[Campaign Delete] Removed ${sceneIds.length} scene(s) and ${actorIds.length} actor(s) from Foundry`
+          );
+        } catch (foundryErr) {
+          console.warn('[Campaign Delete] Foundry cleanup partial or failed (continuing):', foundryErr);
+        }
+      }
+
+      // Delete local DB records in dependency order
+      const npcIds: string[] = npcs.map((n: NPC) => n.id);
+      const sessionIds: string[] = sessions.map((s: Session) => s.id);
+
+      if (npcIds.length > 0) {
+        await AppDataSource.getRepository(NPCHistory).delete({ npcId: In(npcIds) });
+      }
+      if (sessionIds.length > 0) {
+        await AppDataSource.getRepository(SessionResult).delete({ sessionId: In(sessionIds) });
+      }
+      await AppDataSource.getRepository(TimelineEvent).delete({ campaignId });
+      await AppDataSource.getRepository(Token).delete({ campaignId });
+      await AppDataSource.getRepository(NPC).delete({ campaignId });
+      await AppDataSource.getRepository(MapEntity).delete({ campaignId });
+      await AppDataSource.getRepository(Session).delete({ campaignId });
 
       await campaignRepository().remove(campaign);
 
@@ -345,6 +402,44 @@ router.post(
     } catch (error) {
       console.error('Add timeline event error:', error);
       res.status(500).json({ error: 'Failed to add timeline event' });
+    }
+  }
+);
+
+// Delete a single timeline event
+router.delete(
+  '/:id/timeline/:eventId',
+  [param('id').isUUID(), param('eventId').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.id, ownerId: req.userId! },
+      });
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const event = await AppDataSource.getRepository(TimelineEvent).findOne({
+        where: { id: req.params.eventId, campaignId: req.params.id },
+      });
+      if (!event) {
+        res.status(404).json({ error: 'Timeline event not found' });
+        return;
+      }
+
+      await AppDataSource.getRepository(TimelineEvent).remove(event);
+
+      res.status(204).send();
+    } catch (error) {
+      console.error('Delete timeline event error:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 );
