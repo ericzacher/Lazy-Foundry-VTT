@@ -3,6 +3,7 @@ import { Session } from '../entities/Session';
 import { Map as MapEntity } from '../entities/Map';
 import { FoundrySyncService } from './foundrySync';
 import { GeneratedEncounter } from './ai';
+import { generateMonsterSilhouette } from './tokenGenerator';
 
 const sessionRepository = () => AppDataSource.getRepository(Session);
 const mapRepository = () => AppDataSource.getRepository(MapEntity);
@@ -54,6 +55,7 @@ export interface EncounterTokenPlacement {
   x: number;
   y: number;
   enemy: ExpandedEnemy;
+  textureSrc?: string;
 }
 
 export interface CreatedCombat {
@@ -99,6 +101,163 @@ export function inferEnemySize(enemy: { name: string; cr?: string }): string {
 
   // Default to medium
   return 'medium';
+}
+
+// ============================================================
+// Monster Token Resolution (Compendium + Silhouette Fallback)
+// ============================================================
+
+/**
+ * Normalize a monster name for compendium matching:
+ * - Strip trailing numbers (e.g. "Goblin 1" -> "Goblin")
+ * - Strip leading articles
+ * - Lowercase + trim
+ */
+export function normalizeMonsterName(name: string): string {
+  return name
+    .replace(/\s+\d+$/, '')          // strip trailing numbers
+    .replace(/^(the|a|an)\s+/i, '')  // strip leading articles
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Common AI-generated name -> SRD compendium name mappings.
+ */
+const MONSTER_NAME_ALIASES: Record<string, string> = {
+  'skeletal warrior': 'skeleton',
+  'skeleton warrior': 'skeleton',
+  'skeleton archer': 'skeleton',
+  'skeletal archer': 'skeleton',
+  'bandit leader': 'bandit captain',
+  'bandit chief': 'bandit captain',
+  'goblin warrior': 'goblin',
+  'goblin archer': 'goblin',
+  'goblin chief': 'goblin boss',
+  'goblin leader': 'goblin boss',
+  'orc warrior': 'orc',
+  'orc raider': 'orc',
+  'wolf alpha': 'dire wolf',
+  'alpha wolf': 'dire wolf',
+  'giant spider': 'giant spider',
+  'giant rat': 'giant rat',
+  'large spider': 'giant spider',
+  'large rat': 'giant rat',
+  'zombie warrior': 'zombie',
+  'zombie soldier': 'zombie',
+  'dark cultist': 'cultist',
+  'evil cultist': 'cultist',
+  'cult fanatic': 'cult fanatic',
+  'fire elemental': 'fire elemental',
+  'water elemental': 'water elemental',
+  'earth elemental': 'earth elemental',
+  'air elemental': 'air elemental',
+  'young dragon': 'young red dragon',
+  'cave bear': 'brown bear',
+  'wild bear': 'brown bear',
+  'black bear': 'brown bear',
+  'dire bear': 'brown bear',
+  'venomous snake': 'poisonous snake',
+  'giant snake': 'giant constrictor snake',
+  'wraith lord': 'wraith',
+  'shadow assassin': 'shadow',
+  'dark shadow': 'shadow',
+};
+
+/**
+ * Keyword-based creature type inference from monster name.
+ * Maps to the 14 silhouette types defined in tokenGenerator.
+ */
+export function inferCreatureType(name: string): string {
+  const n = name.toLowerCase();
+
+  // Check in priority order (more specific first)
+  if (/dragon|drake|wyvern|wyrm/.test(n)) return 'dragon';
+  if (/skeleton|zombie|ghoul|ghost|specter|spectre|wraith|lich|wight|mummy|vampire|undead|revenant/.test(n)) return 'undead';
+  if (/devil|demon|fiend|imp|succubus|incubus|balor|pit fiend|hezrou|vrock/.test(n)) return 'fiend';
+  if (/angel|celestial|deva|planetar|solar|archon|couatl/.test(n)) return 'celestial';
+  if (/sprite|pixie|fairy|fey|dryad|satyr|nymph|hag|eladrin/.test(n)) return 'fey';
+  if (/elemental|fire|water|earth|air|magma|ice|steam|lightning|mephit|genie|djinn|efreet/.test(n)) return 'elemental';
+  if (/golem|construct|animated|shield guardian|homunculus|modron/.test(n)) return 'construct';
+  if (/beholder|mind flayer|aboleth|illithid|aberration|slaad|gibbering|otyugh|flumph|intellect devourer/.test(n)) return 'aberration';
+  if (/giant|ogre|troll|ettin|cyclops|hill giant|frost giant|fire giant|stone giant|storm giant|cloud giant/.test(n)) return 'giant';
+  if (/ooze|slime|jelly|pudding|gelatinous|blob/.test(n)) return 'ooze';
+  if (/treant|blight|shambling|myconid|vegepygmy|plant/.test(n)) return 'plant';
+  if (/chimera|griffon|griffin|manticore|owlbear|displacer|bulette|hydra|basilisk|cockatrice|worg|roc|kraken|purple worm|ankheg|carrion|rust monster|phase spider|hook horror/.test(n)) return 'monstrosity';
+  if (/wolf|bear|rat|spider|snake|bat|hawk|eagle|lion|tiger|panther|boar|horse|ape|crocodile|shark|scorpion|elk|deer|ox|cat|toad|frog|raven|vulture|owl|octopus|crab|beast/.test(n)) return 'beast';
+
+  // Default: humanoid covers goblin, kobold, orc, bandit, guard, cultist, etc.
+  return 'humanoid';
+}
+
+/** Token resolution result */
+export interface MonsterTokenInfo {
+  img?: string;
+  textureSrc?: string;
+  prototypeToken?: {
+    texture: { src: string };
+    width: number;
+    height: number;
+  };
+}
+
+/**
+ * Resolve the best available token image for a monster.
+ *
+ * Tier 1: Search dnd5e.monsters compendium (normalized name, then aliases)
+ * Tier 2: Generate a creature-type SVG silhouette colored by CR
+ */
+export async function resolveMonsterToken(
+  enemy: ExpandedEnemy,
+  foundrySyncService: FoundrySyncService
+): Promise<MonsterTokenInfo> {
+  const baseName = normalizeMonsterName(enemy.name);
+
+  // Tier 1a: Direct compendium lookup with normalized name
+  try {
+    const match = await foundrySyncService.searchCompendium('dnd5e.monsters', baseName);
+    if (match) {
+      return {
+        img: match.img,
+        textureSrc: match.prototypeToken.texture.src,
+        prototypeToken: match.prototypeToken,
+      };
+    }
+  } catch (err) {
+    console.warn(`[EncounterPlacement] Compendium search failed for "${baseName}":`, err);
+  }
+
+  // Tier 1b: Try alias mapping
+  const alias = MONSTER_NAME_ALIASES[baseName];
+  if (alias) {
+    try {
+      const match = await foundrySyncService.searchCompendium('dnd5e.monsters', alias);
+      if (match) {
+        console.log(`[EncounterPlacement] Alias match: "${baseName}" -> "${alias}"`);
+        return {
+          img: match.img,
+          textureSrc: match.prototypeToken.texture.src,
+          prototypeToken: match.prototypeToken,
+        };
+      }
+    } catch (err) {
+      console.warn(`[EncounterPlacement] Alias compendium search failed for "${alias}":`, err);
+    }
+  }
+
+  // Tier 2: Generate silhouette
+  try {
+    const creatureType = inferCreatureType(enemy.name);
+    const silhouettePath = await generateMonsterSilhouette(enemy.name, creatureType, enemy.cr);
+    return {
+      img: silhouettePath,
+      textureSrc: silhouettePath,
+    };
+  } catch (err) {
+    console.warn(`[EncounterPlacement] Silhouette generation failed for "${enemy.name}":`, err);
+  }
+
+  return {};
 }
 
 /**
@@ -246,16 +405,20 @@ function calculateTokenPositions(
 }
 
 /**
- * Create Foundry actor data from enemy
+ * Create Foundry actor data from enemy, with optional token image info.
  */
-function createActorFromEnemy(enemy: ExpandedEnemy): {
+function createActorFromEnemy(enemy: ExpandedEnemy, tokenInfo?: MonsterTokenInfo): {
   name: string;
   type: string;
+  img?: string;
+  prototypeToken?: { texture: { src: string }; width: number; height: number };
   system: Record<string, unknown>;
 } {
   return {
     name: enemy.name,
     type: 'npc',
+    ...(tokenInfo?.img ? { img: tokenInfo.img } : {}),
+    ...(tokenInfo?.prototypeToken ? { prototypeToken: tokenInfo.prototypeToken } : {}),
     system: {
       attributes: {
         hp: {
@@ -419,7 +582,9 @@ export async function placeEncounterTokensFromMap(
       const positions = calculateTokenPositions(expandedEnemies, room, gridSize);
 
       for (const position of positions) {
-        const actorData = createActorFromEnemy(position.enemy);
+        // Resolve token image (compendium lookup -> silhouette fallback)
+        const tokenInfo = await resolveMonsterToken(position.enemy, foundrySyncService);
+        const actorData = createActorFromEnemy(position.enemy, tokenInfo);
         const actorResult = await foundrySyncService.createActor(actorData);
 
         if (actorResult.success && actorResult.data?._id) {
@@ -431,9 +596,10 @@ export async function placeEncounterTokensFromMap(
             x: position.x,
             y: position.y,
             enemy: position.enemy,
+            textureSrc: tokenInfo.textureSrc,
           });
           console.log(
-            `[EncounterPlacement] Created actor for ${position.enemy.name} (encounter ${encIdx}) at (${Math.round(position.x)}, ${Math.round(position.y)})`
+            `[EncounterPlacement] Created actor for ${position.enemy.name} (encounter ${encIdx}) at (${Math.round(position.x)}, ${Math.round(position.y)}) img=${tokenInfo.textureSrc || 'none'}`
           );
         } else {
           console.error(
@@ -580,7 +746,8 @@ export async function placeEncounterTokens(
 
       // Create actors for each enemy
       for (const position of positions) {
-        const actorData = createActorFromEnemy(position.enemy);
+        const tokenInfo = await resolveMonsterToken(position.enemy, foundrySyncService);
+        const actorData = createActorFromEnemy(position.enemy, tokenInfo);
         const actorResult = await foundrySyncService.createActor(actorData);
 
         if (actorResult.success && actorResult.data?._id) {
@@ -592,9 +759,10 @@ export async function placeEncounterTokens(
             x: position.x,
             y: position.y,
             enemy: position.enemy,
+            textureSrc: tokenInfo.textureSrc,
           });
           console.log(
-            `[EncounterPlacement] Created actor for ${position.enemy.name} (encounter ${encIdx}) at (${Math.round(position.x)}, ${Math.round(position.y)})`
+            `[EncounterPlacement] Created actor for ${position.enemy.name} (encounter ${encIdx}) at (${Math.round(position.x)}, ${Math.round(position.y)}) img=${tokenInfo.textureSrc || 'none'}`
           );
         } else {
           console.error(

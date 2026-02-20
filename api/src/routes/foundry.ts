@@ -142,6 +142,7 @@ router.post(
             map.foundrySceneId,
             {
               name: placement.tokenName,
+              texture: placement.textureSrc ? { src: placement.textureSrc } : undefined,
               x: placement.x,
               y: placement.y,
               width: gridUnits,
@@ -497,6 +498,7 @@ router.post(
                 syncedMap.foundrySceneId,
                 {
                   name: placement.tokenName,
+                  texture: placement.textureSrc ? { src: placement.textureSrc } : undefined,
                   x: placement.x,
                   y: placement.y,
                   width: gridUnits,

@@ -39,6 +39,28 @@ interface FoundryDocumentResult {
  * 5. Connect socket.io with session as query parameter
  * 6. Use 'modifyDocument' socket event for all CRUD operations
  */
+export interface CompendiumEntry {
+  _id: string;
+  name: string;
+  img?: string;
+  prototypeToken?: {
+    texture?: { src?: string };
+    width?: number;
+    height?: number;
+  };
+}
+
+export interface CompendiumMatch {
+  found: true;
+  img: string;
+  prototypeToken: {
+    texture: { src: string };
+    width: number;
+    height: number;
+  };
+  name: string;
+}
+
 export class FoundrySyncService {
   private baseUrl: string;
   private adminPassword: string;
@@ -47,6 +69,7 @@ export class FoundrySyncService {
   private sessionCookie: string | null = null;
   private gmUserId: string | null = null;
   private connected = false;
+  private compendiumCache: Map<string, CompendiumEntry[]> = new Map();
 
   constructor() {
     this.baseUrl = FOUNDRY_URL;
@@ -423,6 +446,72 @@ export class FoundrySyncService {
     }
   }
 
+  // ─── Compendium Search ──────────────────────────────────────────
+
+  /**
+   * Search a compendium pack for a monster by name.
+   * Caches the full compendium index on first call for fast repeated lookups.
+   * Returns compendium img and prototypeToken data if found, null otherwise.
+   */
+  async searchCompendium(pack: string, name: string): Promise<CompendiumMatch | null> {
+    try {
+      await this.ensureConnected();
+
+      if (!this.compendiumCache.has(pack)) {
+        console.log(`[FoundrySync] Loading compendium pack "${pack}"...`);
+        const result = await this.emitAndWait('modifyDocument', {
+          action: 'get',
+          type: 'Actor',
+          operation: {
+            query: {},
+            pack,
+            broadcast: false,
+          },
+        }, 30000);
+
+        if (result.error) {
+          console.warn(`[FoundrySync] Failed to load compendium "${pack}":`, result.error.message);
+          return null;
+        }
+
+        const entries = (result.result as CompendiumEntry[]) || [];
+        this.compendiumCache.set(pack, entries);
+        console.log(`[FoundrySync] Cached ${entries.length} entries from "${pack}"`);
+      }
+
+      const entries = this.compendiumCache.get(pack)!;
+      const searchName = name.toLowerCase().trim();
+
+      // Exact case-insensitive match
+      const match = entries.find(e => e.name.toLowerCase() === searchName);
+
+      if (!match) return null;
+
+      const img = match.img || '';
+      const textureSrc = match.prototypeToken?.texture?.src || img;
+      const width = match.prototypeToken?.width || 1;
+      const height = match.prototypeToken?.height || 1;
+
+      if (!img && !textureSrc) return null;
+
+      console.log(`[FoundrySync] Compendium match: "${name}" -> "${match.name}" (img: ${img})`);
+
+      return {
+        found: true,
+        img,
+        prototypeToken: {
+          texture: { src: textureSrc },
+          width,
+          height,
+        },
+        name: match.name,
+      };
+    } catch (error) {
+      console.warn(`[FoundrySync] Compendium search failed for "${name}":`, error);
+      return null;
+    }
+  }
+
   // ─── Public API ───────────────────────────────────────────────
 
   /**
@@ -563,6 +652,11 @@ export class FoundrySyncService {
     name: string;
     type: string;
     img?: string;
+    prototypeToken?: {
+      texture?: { src: string };
+      width?: number;
+      height?: number;
+    };
     system?: Record<string, unknown>;
   }): Promise<FoundryResponse<{ _id: string }>> {
     try {
