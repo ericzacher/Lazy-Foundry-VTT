@@ -1,15 +1,16 @@
 import { AppDataSource } from '../config/database';
 import { Session } from '../entities/Session';
-import { Map } from '../entities/Map';
+import { Map as MapEntity } from '../entities/Map';
 import { FoundrySyncService } from './foundrySync';
 import { GeneratedEncounter } from './ai';
+import { generateMonsterSilhouette } from './tokenGenerator';
 
 const sessionRepository = () => AppDataSource.getRepository(Session);
-const mapRepository = () => AppDataSource.getRepository(Map);
+const mapRepository = () => AppDataSource.getRepository(MapEntity);
 
 // Size to grid units mapping
 const SIZE_TO_GRID_UNITS: Record<string, number> = {
-  tiny: 0.5,
+  tiny: 1,
   small: 1,
   medium: 1,
   large: 2,
@@ -47,10 +48,20 @@ interface RoomData {
 
 export interface EncounterTokenPlacement {
   actorId: string;
+  tokenId?: string;
   tokenName: string;
+  encounterIndex: number;
+  encounterName: string;
   x: number;
   y: number;
   enemy: ExpandedEnemy;
+  textureSrc?: string;
+}
+
+export interface CreatedCombat {
+  combatId: string;
+  encounterName: string;
+  combatantCount: number;
 }
 
 // ============================================================
@@ -68,7 +79,7 @@ function jitter(): number {
 /**
  * Infer enemy size from CR or name
  */
-function inferEnemySize(enemy: { name: string; cr?: string }): string {
+export function inferEnemySize(enemy: { name: string; cr?: string }): string {
   const name = enemy.name.toLowerCase();
 
   // Size keywords in name
@@ -90,6 +101,163 @@ function inferEnemySize(enemy: { name: string; cr?: string }): string {
 
   // Default to medium
   return 'medium';
+}
+
+// ============================================================
+// Monster Token Resolution (Compendium + Silhouette Fallback)
+// ============================================================
+
+/**
+ * Normalize a monster name for compendium matching:
+ * - Strip trailing numbers (e.g. "Goblin 1" -> "Goblin")
+ * - Strip leading articles
+ * - Lowercase + trim
+ */
+export function normalizeMonsterName(name: string): string {
+  return name
+    .replace(/\s+\d+$/, '')          // strip trailing numbers
+    .replace(/^(the|a|an)\s+/i, '')  // strip leading articles
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Common AI-generated name -> SRD compendium name mappings.
+ */
+const MONSTER_NAME_ALIASES: Record<string, string> = {
+  'skeletal warrior': 'skeleton',
+  'skeleton warrior': 'skeleton',
+  'skeleton archer': 'skeleton',
+  'skeletal archer': 'skeleton',
+  'bandit leader': 'bandit captain',
+  'bandit chief': 'bandit captain',
+  'goblin warrior': 'goblin',
+  'goblin archer': 'goblin',
+  'goblin chief': 'goblin boss',
+  'goblin leader': 'goblin boss',
+  'orc warrior': 'orc',
+  'orc raider': 'orc',
+  'wolf alpha': 'dire wolf',
+  'alpha wolf': 'dire wolf',
+  'giant spider': 'giant spider',
+  'giant rat': 'giant rat',
+  'large spider': 'giant spider',
+  'large rat': 'giant rat',
+  'zombie warrior': 'zombie',
+  'zombie soldier': 'zombie',
+  'dark cultist': 'cultist',
+  'evil cultist': 'cultist',
+  'cult fanatic': 'cult fanatic',
+  'fire elemental': 'fire elemental',
+  'water elemental': 'water elemental',
+  'earth elemental': 'earth elemental',
+  'air elemental': 'air elemental',
+  'young dragon': 'young red dragon',
+  'cave bear': 'brown bear',
+  'wild bear': 'brown bear',
+  'black bear': 'brown bear',
+  'dire bear': 'brown bear',
+  'venomous snake': 'poisonous snake',
+  'giant snake': 'giant constrictor snake',
+  'wraith lord': 'wraith',
+  'shadow assassin': 'shadow',
+  'dark shadow': 'shadow',
+};
+
+/**
+ * Keyword-based creature type inference from monster name.
+ * Maps to the 14 silhouette types defined in tokenGenerator.
+ */
+export function inferCreatureType(name: string): string {
+  const n = name.toLowerCase();
+
+  // Check in priority order (more specific first)
+  if (/dragon|drake|wyvern|wyrm/.test(n)) return 'dragon';
+  if (/skeleton|zombie|ghoul|ghost|specter|spectre|wraith|lich|wight|mummy|vampire|undead|revenant/.test(n)) return 'undead';
+  if (/devil|demon|fiend|imp|succubus|incubus|balor|pit fiend|hezrou|vrock/.test(n)) return 'fiend';
+  if (/angel|celestial|deva|planetar|solar|archon|couatl/.test(n)) return 'celestial';
+  if (/sprite|pixie|fairy|fey|dryad|satyr|nymph|hag|eladrin/.test(n)) return 'fey';
+  if (/elemental|fire|water|earth|air|magma|ice|steam|lightning|mephit|genie|djinn|efreet/.test(n)) return 'elemental';
+  if (/golem|construct|animated|shield guardian|homunculus|modron/.test(n)) return 'construct';
+  if (/beholder|mind flayer|aboleth|illithid|aberration|slaad|gibbering|otyugh|flumph|intellect devourer/.test(n)) return 'aberration';
+  if (/giant|ogre|troll|ettin|cyclops|hill giant|frost giant|fire giant|stone giant|storm giant|cloud giant/.test(n)) return 'giant';
+  if (/ooze|slime|jelly|pudding|gelatinous|blob/.test(n)) return 'ooze';
+  if (/treant|blight|shambling|myconid|vegepygmy|plant/.test(n)) return 'plant';
+  if (/chimera|griffon|griffin|manticore|owlbear|displacer|bulette|hydra|basilisk|cockatrice|worg|roc|kraken|purple worm|ankheg|carrion|rust monster|phase spider|hook horror/.test(n)) return 'monstrosity';
+  if (/wolf|bear|rat|spider|snake|bat|hawk|eagle|lion|tiger|panther|boar|horse|ape|crocodile|shark|scorpion|elk|deer|ox|cat|toad|frog|raven|vulture|owl|octopus|crab|beast/.test(n)) return 'beast';
+
+  // Default: humanoid covers goblin, kobold, orc, bandit, guard, cultist, etc.
+  return 'humanoid';
+}
+
+/** Token resolution result */
+export interface MonsterTokenInfo {
+  img?: string;
+  textureSrc?: string;
+  prototypeToken?: {
+    texture: { src: string };
+    width: number;
+    height: number;
+  };
+}
+
+/**
+ * Resolve the best available token image for a monster.
+ *
+ * Tier 1: Search dnd5e.monsters compendium (normalized name, then aliases)
+ * Tier 2: Generate a creature-type SVG silhouette colored by CR
+ */
+export async function resolveMonsterToken(
+  enemy: ExpandedEnemy,
+  foundrySyncService: FoundrySyncService
+): Promise<MonsterTokenInfo> {
+  const baseName = normalizeMonsterName(enemy.name);
+
+  // Tier 1a: Direct compendium lookup with normalized name
+  try {
+    const match = await foundrySyncService.searchCompendium('dnd5e.monsters', baseName);
+    if (match) {
+      return {
+        img: match.img,
+        textureSrc: match.prototypeToken.texture.src,
+        prototypeToken: match.prototypeToken,
+      };
+    }
+  } catch (err) {
+    console.warn(`[EncounterPlacement] Compendium search failed for "${baseName}":`, err);
+  }
+
+  // Tier 1b: Try alias mapping
+  const alias = MONSTER_NAME_ALIASES[baseName];
+  if (alias) {
+    try {
+      const match = await foundrySyncService.searchCompendium('dnd5e.monsters', alias);
+      if (match) {
+        console.log(`[EncounterPlacement] Alias match: "${baseName}" -> "${alias}"`);
+        return {
+          img: match.img,
+          textureSrc: match.prototypeToken.texture.src,
+          prototypeToken: match.prototypeToken,
+        };
+      }
+    } catch (err) {
+      console.warn(`[EncounterPlacement] Alias compendium search failed for "${alias}":`, err);
+    }
+  }
+
+  // Tier 2: Generate silhouette
+  try {
+    const creatureType = inferCreatureType(enemy.name);
+    const silhouettePath = await generateMonsterSilhouette(enemy.name, creatureType, enemy.cr);
+    return {
+      img: silhouettePath,
+      textureSrc: silhouettePath,
+    };
+  } catch (err) {
+    console.warn(`[EncounterPlacement] Silhouette generation failed for "${enemy.name}":`, err);
+  }
+
+  return {};
 }
 
 /**
@@ -124,8 +292,9 @@ function expandEnemyCount(enemies: Array<{
 }
 
 /**
- * Select rooms for encounter placement
- * Filters rooms by minimum size and sorts by distance from origin
+ * Select rooms for encounter placement.
+ * Ensures each encounter gets a DIFFERENT room when possible.
+ * Sorts rooms by size (largest first) so bigger fights get bigger rooms.
  */
 function selectRoomsForEncounters(
   rooms: RoomData[],
@@ -134,24 +303,50 @@ function selectRoomsForEncounters(
   // Skip the first room (player spawn area)
   const availableRooms = rooms.slice(1);
 
-  // Filter rooms by minimum size (4x4 grid units)
-  const suitable = availableRooms.filter(
-    (r) => r.width >= 4 && r.height >= 4
-  );
-
-  if (suitable.length === 0) {
-    // Fallback to all available rooms if none are large enough
-    return availableRooms.slice(0, encounterCount);
+  if (availableRooms.length === 0) {
+    console.warn('[EncounterPlacement] No rooms available after skipping spawn room');
+    return [];
   }
 
-  // Sort by distance from origin (furthest first for enemy placement)
-  const sorted = suitable.sort((a, b) => {
-    const distA = Math.sqrt(a.centerX ** 2 + a.centerY ** 2);
-    const distB = Math.sqrt(b.centerX ** 2 + b.centerY ** 2);
-    return distB - distA;
-  });
+  // Prefer rooms >= 3x3 (relaxed from 4x4 to include more rooms)
+  let candidates = availableRooms.filter(
+    (r) => r.width >= 3 && r.height >= 3
+  );
 
-  return sorted.slice(0, Math.min(sorted.length, encounterCount));
+  // If not enough suitable rooms, include all rooms
+  if (candidates.length < encounterCount) {
+    candidates = availableRooms;
+  }
+
+  // Sort by room area (largest first) so encounters fit better
+  candidates.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+
+  // If we have enough rooms, return one per encounter (no sharing)
+  if (candidates.length >= encounterCount) {
+    // Spread encounters across different rooms by spacing them out
+    const step = Math.max(1, Math.floor(candidates.length / encounterCount));
+    const selected: RoomData[] = [];
+    for (let i = 0; i < encounterCount; i++) {
+      const idx = Math.min(i * step, candidates.length - 1);
+      // Avoid duplicates if step causes overlap
+      const room = candidates[idx] && !selected.includes(candidates[idx])
+        ? candidates[idx]
+        : candidates.find((r) => !selected.includes(r));
+      if (room) selected.push(room);
+    }
+
+    console.log(
+      `[EncounterPlacement] Selected ${selected.length} unique room(s) for ${encounterCount} encounter(s) ` +
+      `(from ${candidates.length} candidates, ${availableRooms.length} total rooms)`
+    );
+    return selected;
+  }
+
+  // Fewer rooms than encounters — return all and let round-robin handle it
+  console.log(
+    `[EncounterPlacement] Only ${candidates.length} room(s) for ${encounterCount} encounter(s), some will share`
+  );
+  return candidates;
 }
 
 /**
@@ -210,16 +405,20 @@ function calculateTokenPositions(
 }
 
 /**
- * Create Foundry actor data from enemy
+ * Create Foundry actor data from enemy, with optional token image info.
  */
-function createActorFromEnemy(enemy: ExpandedEnemy): {
+function createActorFromEnemy(enemy: ExpandedEnemy, tokenInfo?: MonsterTokenInfo): {
   name: string;
   type: string;
+  img?: string;
+  prototypeToken?: { texture: { src: string }; width: number; height: number };
   system: Record<string, unknown>;
 } {
   return {
     name: enemy.name,
     type: 'npc',
+    ...(tokenInfo?.img ? { img: tokenInfo.img } : {}),
+    ...(tokenInfo?.prototypeToken ? { prototypeToken: tokenInfo.prototypeToken } : {}),
     system: {
       attributes: {
         hp: {
@@ -252,7 +451,7 @@ function createActorFromEnemy(enemy: ExpandedEnemy): {
  * This is the primary path used by bulk sync.
  */
 export async function placeEncounterTokensFromMap(
-  map: Map,
+  map: MapEntity,
   foundrySyncService: FoundrySyncService
 ): Promise<EncounterTokenPlacement[]> {
   const placements: EncounterTokenPlacement[] = [];
@@ -376,22 +575,31 @@ export async function placeEncounterTokensFromMap(
         expandedEnemies.length = 12;
       }
       const room = selectedRooms[encIdx % selectedRooms.length];
+      console.log(
+        `[EncounterPlacement] Encounter ${encIdx} "${encounter.name || ''}" → room ${room.id} ` +
+        `(${room.width}x${room.height} at ${room.centerX},${room.centerY})`
+      );
       const positions = calculateTokenPositions(expandedEnemies, room, gridSize);
 
       for (const position of positions) {
-        const actorData = createActorFromEnemy(position.enemy);
+        // Resolve token image (compendium lookup -> silhouette fallback)
+        const tokenInfo = await resolveMonsterToken(position.enemy, foundrySyncService);
+        const actorData = createActorFromEnemy(position.enemy, tokenInfo);
         const actorResult = await foundrySyncService.createActor(actorData);
 
         if (actorResult.success && actorResult.data?._id) {
           placements.push({
             actorId: actorResult.data._id,
             tokenName: position.enemy.name,
+            encounterIndex: encIdx,
+            encounterName: encounter.name || `Encounter ${encIdx + 1}`,
             x: position.x,
             y: position.y,
             enemy: position.enemy,
+            textureSrc: tokenInfo.textureSrc,
           });
           console.log(
-            `[EncounterPlacement] Created actor for ${position.enemy.name} at (${Math.round(position.x)}, ${Math.round(position.y)})`
+            `[EncounterPlacement] Created actor for ${position.enemy.name} (encounter ${encIdx}) at (${Math.round(position.x)}, ${Math.round(position.y)}) img=${tokenInfo.textureSrc || 'none'}`
           );
         } else {
           console.error(
@@ -450,7 +658,7 @@ export async function placeEncounterTokens(
     }
 
     // Find the map associated with this session
-    let targetMap: Map | null = null;
+    let targetMap: MapEntity | null = null;
     if (session.mapIds?.length > 0) {
       for (const mapId of session.mapIds) {
         const map = await mapRepository().findOne({
@@ -538,19 +746,23 @@ export async function placeEncounterTokens(
 
       // Create actors for each enemy
       for (const position of positions) {
-        const actorData = createActorFromEnemy(position.enemy);
+        const tokenInfo = await resolveMonsterToken(position.enemy, foundrySyncService);
+        const actorData = createActorFromEnemy(position.enemy, tokenInfo);
         const actorResult = await foundrySyncService.createActor(actorData);
 
         if (actorResult.success && actorResult.data?._id) {
           placements.push({
             actorId: actorResult.data._id,
             tokenName: position.enemy.name,
+            encounterIndex: encIdx,
+            encounterName: encounter.name || `Encounter ${encIdx + 1}`,
             x: position.x,
             y: position.y,
             enemy: position.enemy,
+            textureSrc: tokenInfo.textureSrc,
           });
           console.log(
-            `[EncounterPlacement] Created actor for ${position.enemy.name} at (${Math.round(position.x)}, ${Math.round(position.y)})`
+            `[EncounterPlacement] Created actor for ${position.enemy.name} (encounter ${encIdx}) at (${Math.round(position.x)}, ${Math.round(position.y)}) img=${tokenInfo.textureSrc || 'none'}`
           );
         } else {
           console.error(
@@ -569,4 +781,118 @@ export async function placeEncounterTokens(
   }
 
   return placements;
+}
+
+// ============================================================
+// Combat Encounter Creation
+// ============================================================
+
+/**
+ * Create Foundry Combat encounters from placed tokens on a map.
+ *
+ * Groups placements by their encounterIndex (set during placement),
+ * creates a Combat document for each encounter, and adds all
+ * placed tokens as Combatants in the combat tracker.
+ *
+ * @param map - The map entity with foundrySceneId and encounters in details
+ * @param placements - Token placements returned from placeEncounterTokensFromMap
+ * @param foundrySyncService - The Foundry sync service instance
+ * @returns Array of created Combat encounter references
+ */
+export async function createCombatEncounters(
+  map: MapEntity,
+  placements: EncounterTokenPlacement[],
+  foundrySyncService: FoundrySyncService
+): Promise<CreatedCombat[]> {
+  const createdCombats: CreatedCombat[] = [];
+
+  if (!map.foundrySceneId || placements.length === 0) {
+    return createdCombats;
+  }
+
+  try {
+    // Group placements by encounterIndex — this is set during placement
+    // and survives even if some actors/tokens fail to create
+    const encounterGroups = new globalThis.Map<number, {
+      name: string;
+      placements: EncounterTokenPlacement[];
+    }>();
+
+    for (const placement of placements) {
+      const idx = placement.encounterIndex;
+      if (!encounterGroups.has(idx)) {
+        encounterGroups.set(idx, {
+          name: placement.encounterName,
+          placements: [],
+        });
+      }
+      encounterGroups.get(idx)!.placements.push(placement);
+    }
+
+    console.log(
+      `[EncounterPlacement] Grouped ${placements.length} placement(s) into ${encounterGroups.size} encounter(s)`
+    );
+
+    // Create a Combat for each encounter group that has placements with tokenIds
+    for (const [encIdx, group] of encounterGroups) {
+      const validPlacements = group.placements.filter((p) => p.tokenId && p.actorId);
+
+      if (validPlacements.length === 0) {
+        console.log(
+          `[EncounterPlacement] Skipping combat for "${group.name}" (enc ${encIdx}): no placements with tokenIds`
+        );
+        continue;
+      }
+
+      // Create the Combat document
+      const combatResult = await foundrySyncService.createCombat(map.foundrySceneId);
+
+      if (!combatResult.success || !combatResult.data?._id) {
+        console.error(
+          `[EncounterPlacement] Failed to create combat for "${group.name}":`,
+          combatResult.error
+        );
+        continue;
+      }
+
+      const combatId = combatResult.data._id;
+
+      // Add all tokens as combatants
+      const combatantData = validPlacements.map((p) => ({
+        actorId: p.actorId,
+        tokenId: p.tokenId!,
+        sceneId: map.foundrySceneId!,
+        name: p.tokenName,
+      }));
+
+      const combatantResult = await foundrySyncService.createCombatants(
+        combatId,
+        combatantData
+      );
+
+      if (combatantResult.success) {
+        createdCombats.push({
+          combatId,
+          encounterName: group.name,
+          combatantCount: validPlacements.length,
+        });
+        console.log(
+          `[EncounterPlacement] Combat "${group.name}" created with ${validPlacements.length} combatant(s)`
+        );
+      } else {
+        console.error(
+          `[EncounterPlacement] Failed to add combatants to combat "${group.name}":`,
+          combatantResult.error
+        );
+      }
+    }
+
+    console.log(
+      `[EncounterPlacement] Created ${createdCombats.length} combat encounter(s) for map "${map.name}"`
+    );
+  } catch (error) {
+    console.error('[EncounterPlacement] Error creating combat encounters:', error);
+  }
+
+  return createdCombats;
 }

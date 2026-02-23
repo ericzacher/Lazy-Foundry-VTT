@@ -6,7 +6,9 @@ import { Session } from '../entities/Session';
 import { NPC } from '../entities/NPC';
 import { Map, MapType } from '../entities/Map';
 import { Token } from '../entities/Token';
+import { NPCHistory } from '../entities/NPCHistory';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { foundrySyncService } from '../services/foundrySync';
 import {
   generateCampaignLore,
   generateNPCs,
@@ -23,6 +25,7 @@ import {
   generateTokenFromDescription,
   saveTokenImage,
 } from '../services/tokenGenerator';
+import { inferEnemySize } from '../services/encounterPlacement';
 
 const router = Router();
 
@@ -344,6 +347,8 @@ router.post(
     body('encounterConfig.difficulty').optional().isIn(['easy', 'medium', 'hard', 'deadly']),
     body('encounterConfig.partyLevel').optional().isInt({ min: 1, max: 20 }),
     body('encounterConfig.partySize').optional().isInt({ min: 1, max: 10 }),
+    body('encounterConfig.monsterType').optional().isString(),
+    body('encounterConfig.monstersPerEncounter').optional().isInt({ min: 1, max: 12 }),
   ],
   async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
@@ -383,7 +388,9 @@ Tone: ${campaign.tone || 'Balanced'}
       // Generate detailed encounters if requested
       let generatedEncounters: any[] = [];
       if (encounterConfig) {
-        const encounterType = `${encounterConfig.difficulty} ${mapType} encounters`;
+        const monsterTypeHint = encounterConfig.monsterType ? ` featuring ${encounterConfig.monsterType} creatures` : '';
+        const monsterCountHint = encounterConfig.monstersPerEncounter ? ` with approximately ${encounterConfig.monstersPerEncounter} monsters each` : '';
+        const encounterType = `${encounterConfig.difficulty} ${mapType} encounters${monsterTypeHint}${monsterCountHint}`;
         const encounters = await generateDetailedEncounters(
           campaignContext,
           encounterConfig.partyLevel,
@@ -392,6 +399,34 @@ Tone: ${campaign.tone || 'Balanced'}
         );
         generatedEncounters = encounters.slice(0, encounterConfig.count);
         console.log(`[Map Generation] Generated ${generatedEncounters.length} encounters for map`);
+
+        // Save encounter enemies as NPC entities (monsters)
+        const seenEnemyNames = new Set<string>();
+        for (const encounter of generatedEncounters) {
+          if (encounter.enemies) {
+            for (const enemy of encounter.enemies) {
+              if (seenEnemyNames.has(enemy.name)) continue;
+              seenEnemyNames.add(enemy.name);
+
+              const npcEntity = npcRepository().create({
+                campaignId: campaign.id,
+                name: enemy.name,
+                role: 'Monster',
+                description: `${enemy.tactics || ''}\n\nFrom encounter: ${encounter.name}`.trim(),
+                stats: {
+                  hitPoints: enemy.hitPoints,
+                  armorClass: enemy.armorClass,
+                  challengeRating: enemy.cr,
+                  size: inferEnemySize(enemy),
+                  abilities: enemy.abilities || [],
+                } as unknown as Record<string, unknown>,
+                motivations: [],
+              });
+              await npcRepository().save(npcEntity);
+            }
+          }
+        }
+        console.log(`[Map Generation] Created ${seenEnemyNames.size} monster NPCs`);
       }
 
       // Generate procedural map image + Foundry VTT scene data
@@ -666,7 +701,7 @@ router.post(
         npc.description || npc.personality?.toString() || '',
         npc.id,
         size,
-        npc.role?.toLowerCase().includes('enemy') ? 'npc' : 'character'
+        npc.role?.toLowerCase().includes('enemy') || npc.role === 'Monster' ? 'npc' : 'character'
       );
 
       // Save token image
@@ -687,7 +722,7 @@ router.post(
         name: npc.name,
         description: npc.description,
         imageUrl,
-        type: npc.role?.toLowerCase().includes('enemy') ? 'npc' : 'character',
+        type: npc.role?.toLowerCase().includes('enemy') || npc.role === 'Monster' ? 'npc' : 'character',
         size: tokenData.size,
         width: tokenData.width,
         height: tokenData.height,
@@ -812,14 +847,19 @@ router.post(
   }
 );
 
-// Generate monsters (quick combat creatures)
+// Add encounters to an existing map
 router.post(
-  '/campaigns/:id/monsters',
+  '/campaigns/:id/maps/:mapId/encounters',
   [
     param('id').isUUID(),
-    body('monsterType').notEmpty().isString(),
-    body('cr').isFloat({ min: 0, max: 30 }),
-    body('count').optional().isInt({ min: 1, max: 20 }),
+    param('mapId').isUUID(),
+    body('encounterConfig').isObject(),
+    body('encounterConfig.count').isInt({ min: 1, max: 10 }),
+    body('encounterConfig.difficulty').isIn(['easy', 'medium', 'hard', 'deadly']),
+    body('encounterConfig.partyLevel').optional().isInt({ min: 1, max: 20 }),
+    body('encounterConfig.partySize').optional().isInt({ min: 1, max: 10 }),
+    body('encounterConfig.monsterType').optional().isString(),
+    body('encounterConfig.monstersPerEncounter').optional().isInt({ min: 1, max: 12 }),
   ],
   async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
@@ -838,85 +878,172 @@ router.post(
         return;
       }
 
-      const { monsterType, cr, count = 1 } = req.body;
+      const map = await mapRepository().findOne({
+        where: { id: req.params.mapId, campaignId: campaign.id },
+      });
 
-      // Generate monsters with AI
-      const monsters = await generateMonsters(
-        campaign.worldLore || `${campaign.setting} - ${campaign.theme}`,
-        monsterType,
-        cr,
-        count
+      if (!map) {
+        res.status(404).json({ error: 'Map not found' });
+        return;
+      }
+
+      const { encounterConfig } = req.body;
+
+      const campaignContext = `
+Campaign: ${campaign.name}
+Setting: ${campaign.setting || 'Fantasy'}
+Theme: ${campaign.theme || 'Adventure'}
+Tone: ${campaign.tone || 'Balanced'}
+      `.trim();
+
+      const monsterTypeHint = encounterConfig.monsterType ? ` featuring ${encounterConfig.monsterType} creatures` : '';
+      const monsterCountHint = encounterConfig.monstersPerEncounter ? ` with approximately ${encounterConfig.monstersPerEncounter} monsters each` : '';
+      const encounterType = `${encounterConfig.difficulty} ${map.type || 'dungeon'} encounters${monsterTypeHint}${monsterCountHint}`;
+
+      const encounters = await generateDetailedEncounters(
+        campaignContext,
+        encounterConfig.partyLevel || campaign.partyLevel || 1,
+        encounterConfig.partySize || campaign.playerCount || 4,
+        encounterType
       );
 
-      // Save each monster as an NPC for Foundry sync
-      const savedMonsters = [];
-      for (const monster of monsters) {
-        const npc = npcRepository().create({
-          campaignId: campaign.id,
-          name: monster.name,
-          role: monster.type,
-          description: monster.description,
-          personality: {
-            traits: monster.combat.specialAbilities || [],
-            ideals: monster.tactics || 'Combat focused',
-            bonds: '',
-            flaws: '',
-          },
-          motivations: ['Combat'],
-          background: `CR ${monster.cr} ${monster.type}`,
-          stats: {
-            strength: monster.stats.strength,
-            dexterity: monster.stats.dexterity,
-            constitution: monster.stats.constitution,
-            intelligence: monster.stats.intelligence,
-            wisdom: monster.stats.wisdom,
-            charisma: monster.stats.charisma,
-          },
-          combatStats: {
-            hitPoints: monster.combat.hitPoints,
-            armorClass: monster.combat.armorClass,
-            speed: monster.combat.speed,
-            attacks: monster.combat.attacks,
-          },
-        });
+      const generatedEncounters = encounters.slice(0, encounterConfig.count);
+      console.log(`[Add Encounters] Generated ${generatedEncounters.length} encounters for map "${map.name}"`);
 
-        const saved = await npcRepository().save(npc);
-        savedMonsters.push(saved);
+      // Save encounter enemies as NPC entities (monsters)
+      const seenEnemyNames = new Set<string>();
+      for (const encounter of generatedEncounters) {
+        if (encounter.enemies) {
+          for (const enemy of encounter.enemies) {
+            if (seenEnemyNames.has(enemy.name)) continue;
+            seenEnemyNames.add(enemy.name);
 
-        // Auto-generate token for monster
+            const npcEntity = npcRepository().create({
+              campaignId: campaign.id,
+              name: enemy.name,
+              role: 'Monster',
+              description: `${enemy.tactics || ''}\n\nFrom encounter: ${encounter.name}`.trim(),
+              stats: {
+                hitPoints: enemy.hitPoints,
+                armorClass: enemy.armorClass,
+                challengeRating: enemy.cr,
+                size: inferEnemySize(enemy),
+                abilities: enemy.abilities || [],
+              } as unknown as Record<string, unknown>,
+              motivations: [],
+            });
+            await npcRepository().save(npcEntity);
+          }
+        }
+      }
+      console.log(`[Add Encounters] Created ${seenEnemyNames.size} monster NPCs`);
+
+      // Append new encounters to existing map details
+      const mapDetails = (map.details as any) || {};
+      const existingEncounters = mapDetails.encounters || [];
+      mapDetails.encounters = [...existingEncounters, ...generatedEncounters];
+      map.details = mapDetails;
+      await mapRepository().save(map);
+
+      res.json({ map, encounters: generatedEncounters });
+    } catch (error) {
+      console.error('Add encounters error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to add encounters';
+      res.status(500).json({ error: 'Failed to add encounters', details: errorMessage });
+    }
+  }
+);
+
+// Delete a single NPC
+router.delete(
+  '/campaigns/:campaignId/npcs/:npcId',
+  [param('campaignId').isUUID(), param('npcId').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.campaignId, ownerId: req.userId! },
+      });
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const npc = await npcRepository().findOne({
+        where: { id: req.params.npcId, campaignId: req.params.campaignId },
+      });
+      if (!npc) {
+        res.status(404).json({ error: 'NPC not found' });
+        return;
+      }
+
+      if (npc.foundryActorId) {
         try {
-          const tokenImage = await generateTokenFromDescription(
-            `${monster.name}: ${monster.description}`,
-            monster.name
-          );
-
-          const tokenPath = await saveTokenImage(
-            tokenImage,
-            campaign.id,
-            saved.id
-          );
-
-          const token = tokenRepository().create({
-            campaignId: campaign.id,
-            npcId: saved.id,
-            imageUrl: tokenPath,
-            name: `${monster.name} Token`,
-          });
-
-          await tokenRepository().save(token);
-        } catch (tokenError) {
-          console.error('Token generation failed (non-critical):', tokenError);
-          // Continue even if token generation fails
+          await foundrySyncService.deleteActor(npc.foundryActorId);
+        } catch (err) {
+          console.warn('[NPC Delete] Foundry actor cleanup failed (continuing):', err);
         }
       }
 
-      res.json({
-        message: `Generated ${count} ${monsterType}(s)`,
-        monsters: savedMonsters,
-      });
+      await AppDataSource.getRepository(NPCHistory).delete({ npcId: npc.id });
+      await tokenRepository().delete({ npcId: npc.id });
+      await npcRepository().remove(npc);
+
+      res.status(204).send();
     } catch (error) {
-      console.error('Generate monsters error:', error);
-      res.status(500).json({ error: 'Failed to generate monsters' });
+      console.error('Delete NPC error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// Delete a single map
+router.delete(
+  '/campaigns/:campaignId/maps/:mapId',
+  [param('campaignId').isUUID(), param('mapId').isUUID()],
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+
+    try {
+      const campaign = await campaignRepository().findOne({
+        where: { id: req.params.campaignId, ownerId: req.userId! },
+      });
+      if (!campaign) {
+        res.status(404).json({ error: 'Campaign not found' });
+        return;
+      }
+
+      const map = await mapRepository().findOne({
+        where: { id: req.params.mapId, campaignId: req.params.campaignId },
+      });
+      if (!map) {
+        res.status(404).json({ error: 'Map not found' });
+        return;
+      }
+
+      if (map.foundrySceneId) {
+        try {
+          await foundrySyncService.deleteScene(map.foundrySceneId);
+        } catch (err) {
+          console.warn('[Map Delete] Foundry scene cleanup failed (continuing):', err);
+        }
+      }
+
+      await mapRepository().remove(map);
+
+      res.status(204).send();
+    } catch (error) {
+      console.error('Delete map error:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 );

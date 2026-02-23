@@ -1,4 +1,4 @@
-import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData, CampaignSummary, TimelineEvent, NPCHistoryEntry, NPCStatus } from '../types';
+import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData, CampaignSummary, TimelineEvent, NPCHistoryEntry, NPCStatus, CharacterData, StoreData, RestoreResult } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -143,6 +143,24 @@ class ApiService {
     });
   }
 
+  async deleteNPC(campaignId: string, npcId: string): Promise<void> {
+    return this.request<void>(`/api/generate/campaigns/${campaignId}/npcs/${npcId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteMap(campaignId: string, mapId: string): Promise<void> {
+    return this.request<void>(`/api/generate/campaigns/${campaignId}/maps/${mapId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteTimelineEvent(campaignId: string, eventId: string): Promise<void> {
+    return this.request<void>(`/api/campaigns/${campaignId}/timeline/${eventId}`, {
+      method: 'DELETE',
+    });
+  }
+
   async finalizeSession(id: string, data: Record<string, unknown>): Promise<unknown> {
     return this.request(`/api/sessions/${id}/finalize`, {
       method: 'POST',
@@ -220,6 +238,8 @@ class ApiService {
       difficulty: 'easy' | 'medium' | 'hard' | 'deadly';
       partyLevel: number;
       partySize: number;
+      monsterType?: string;
+      monstersPerEncounter?: number;
     },
     mapSize?: 'small' | 'medium' | 'large'
   ): Promise<{ map: MapData }> {
@@ -253,6 +273,24 @@ class ApiService {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  // Add encounters to existing map
+  async addEncountersToMap(
+    campaignId: string,
+    mapId: string,
+    encounterConfig: {
+      count: number;
+      difficulty: 'easy' | 'medium' | 'hard' | 'deadly';
+      partyLevel: number;
+      partySize: number;
+      monsterType?: string;
+    }
+  ): Promise<{ map: MapData; encounters: unknown[] }> {
+    return this.request(`/api/generate/campaigns/${campaignId}/maps/${mapId}/encounters`, {
+      method: 'POST',
+      body: JSON.stringify({ encounterConfig }),
+    });
   }
 
   // Encounters
@@ -328,12 +366,28 @@ class ApiService {
     });
   }
 
-  async getFoundryScenes(): Promise<{ scenes: unknown[] }> {
+  async getFoundryScenes(): Promise<{ scenes: Array<{ _id: string; name: string }> }> {
     return this.request('/api/foundry/scenes');
   }
 
-  async getFoundryActors(): Promise<{ actors: unknown[] }> {
+  async getFoundryActors(): Promise<{ actors: Array<{ _id: string; name: string }> }> {
     return this.request('/api/foundry/actors');
+  }
+
+  async deleteFoundryScene(sceneId: string): Promise<void> {
+    return this.request<void>(`/api/foundry/scenes/${sceneId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteFoundryActor(actorId: string): Promise<void> {
+    return this.request<void>(`/api/foundry/actors/${actorId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteFoundryJournal(journalId: string): Promise<void> {
+    return this.request<void>(`/api/foundry/journals/${journalId}`, { method: 'DELETE' });
   }
 
   // Phase 5: Session Continuity
@@ -381,6 +435,139 @@ class ApiService {
     campaignId: string
   ): Promise<{ statuses: Record<string, NPCStatus> }> {
     return this.request(`/api/campaigns/${campaignId}/npc-status`);
+  }
+
+  // Character Creator (public — no auth token required)
+  async getFoundryPlayers(): Promise<{ success: boolean; players: Array<{ _id: string; name: string; role: number }> }> {
+    return this.request('/api/characters/foundry-players');
+  }
+
+  async syncCharacterToFoundry(data: CharacterData): Promise<{ success: boolean; foundryActorId: string; name: string }> {
+    return this.request('/api/characters/sync', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async generateAICharacter(concept: string): Promise<{ success: boolean; character: CharacterData }> {
+    return this.request('/api/characters/generate-ai', {
+      method: 'POST',
+      body: JSON.stringify({ concept }),
+    });
+  }
+
+  async generateCharacterLore(data: {
+    name?: string;
+    race: string;
+    subrace?: string;
+    class: string;
+    subclass?: string;
+    background: string;
+    alignment: string;
+  }): Promise<{ success: boolean; backstory: string; personalityTraits: string[]; ideals: string; bonds: string; flaws: string }> {
+    return this.request('/api/characters/generate-lore', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Stores
+  async generateStore(params: {
+    settlementSize: string;
+    storeType: string;
+    racialInfluence: string;
+    biome: string;
+    maxRarity?: string;
+    stockSize?: string;
+    magicItems?: boolean;
+    campaignId?: string;
+    locationName?: string;
+    campaignContext?: { setting?: string; theme?: string; tone?: string; worldSummary?: string };
+  }): Promise<{ success: boolean; store: StoreData }> {
+    return this.request('/api/stores/generate', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  async getStores(campaignId?: string): Promise<{ stores: StoreData[] }> {
+    const qs = campaignId ? `?campaignId=${campaignId}` : '';
+    return this.request(`/api/stores${qs}`);
+  }
+
+  async getStore(id: string): Promise<{ store: StoreData }> {
+    return this.request(`/api/stores/${id}`);
+  }
+
+  async deleteStore(id: string): Promise<void> {
+    return this.request<void>(`/api/stores/${id}`, { method: 'DELETE' });
+  }
+
+  async exportStoreToFoundry(id: string): Promise<{ success: boolean; foundryJournalId: string }> {
+    return this.request(`/api/stores/${id}/foundry-export`, { method: 'POST' });
+  }
+
+  // Backups
+  private async downloadBlob(endpoint: string, fallbackFilename: string): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    const res = await fetch(`${API_URL}${endpoint}`, { headers });
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const disposition = res.headers.get('Content-Disposition');
+    a.download = disposition?.match(/filename="(.+)"/)?.[1] || fallbackFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async downloadFullBackup(): Promise<void> {
+    return this.downloadBlob('/api/backups/full', 'lazy-foundry-full-backup.zip');
+  }
+
+  async downloadCampaignBackup(campaignId: string): Promise<void> {
+    return this.downloadBlob(`/api/backups/campaigns/${campaignId}`, 'lazy-foundry-campaign-backup.zip');
+  }
+
+  async restoreFullBackup(file: File): Promise<RestoreResult> {
+    const formData = new FormData();
+    formData.append('backup', file);
+    const headers: Record<string, string> = {};
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    const res = await fetch(`${API_URL}/api/backups/restore/full`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Restore failed' }));
+      throw new Error(err.error || 'Restore failed');
+    }
+    return res.json();
+  }
+
+  async restoreCampaignBackup(file: File, campaignId?: string): Promise<RestoreResult> {
+    const formData = new FormData();
+    formData.append('backup', file);
+    const headers: Record<string, string> = {};
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    const endpoint = campaignId
+      ? `/api/backups/restore/campaign/${campaignId}`
+      : '/api/backups/restore/campaign';
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Restore failed' }));
+      throw new Error(err.error || 'Restore failed');
+    }
+    return res.json();
   }
 
   async generateContinuityScenario(

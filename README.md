@@ -4,7 +4,7 @@
 
 Generate maps, tokens, NPCs, lore, and scenarios using AI, then sync directly to your Foundry VTT instance. Reduce prep time from hours to minutes while maintaining narrative continuity across sessions.
 
-[![Status](https://img.shields.io/badge/status-Phase%206%20Complete-brightgreen)]()
+[![Status](https://img.shields.io/badge/status-Character%20Creator%20Added-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 [![Docker](https://img.shields.io/badge/docker-required-blue)]()
 
@@ -96,7 +96,35 @@ Generate maps, tokens, NPCs, lore, and scenarios using AI, then sync directly to
 - **World auto-launch** via `FOUNDRY_WORLD` environment variable
 - Zero manual Foundry configuration required after license acceptance
 
-### ⚔️ Combat Enhancement System (NEW!)
+### 🧙 Player Character Creator (NEW!)
+
+> **No login required** — share the URL directly with players.
+
+- **7-step wizard**: Race → Class → Background → Ability Scores → Skills → Equipment → Review
+- **9 PHB races** with full subrace support (High/Wood/Drow Elf, Hill/Mountain Dwarf, etc.) and live racial ASI preview
+- **12 PHB classes** with hit die, saving throws, armor/weapon proficiencies, and equipment packs
+- **13 PHB backgrounds** with auto-granted skill proficiencies, starting equipment, and gold
+- **Standard Array** (dropdown assignment, values [15,14,13,12,10,8]) and **Point Buy** (27-point budget, +/- controls)
+- **Per-class build suggestions**: 1–2 popular stat distributions per class (e.g. Fighter: Strength Build vs Dexterity/Archer) — one click fills all 6 scores. Works in both Standard Array and Point Buy mode since [15,14,13,12,10,8] costs exactly 27 points
+- **Skill selection** with background skills pre-locked and class skill cap enforced
+- **Live stat review card**: shows final HP (max hit die + CON mod), AC (auto-detects armor), all ability modifiers, proficiency bonus
+- **Sync to Foundry VTT**: creates a `type: character` actor with full dnd5e system data (abilities, HP, AC, skills, currency, biography)
+- **AI character generation**: describe a concept ("a gruff dwarven soldier seeking redemption") — AI fills out all 7 steps, jump straight to review
+- **URL**: `http://localhost:3000/character-creator`
+
+### 💾 Backup & Restore
+- **Full system backup**: Download a zip containing all database records (campaigns, sessions, NPCs, maps, tokens, stores, timeline events) and asset files (map/token PNGs)
+- **Per-campaign export**: Export a single campaign with all its related data, available from the Backup Manager or the Manage Campaign page
+- **Foundry snapshot**: Full backups include a reference snapshot of actors, scenes, and journals from Foundry VTT (best-effort)
+- **Full restore**: Upload a full backup zip to restore all data with new UUIDs; users matched by email to avoid duplicates
+- **Campaign restore**: Import a campaign backup as a new campaign, or merge into an existing one
+- **ID remapping**: All foreign keys are remapped during restore — data integrity is preserved automatically
+- **Transactional**: Entire restore runs in a database transaction — if anything fails, nothing is committed
+- **No environment data**: Backups never include `.env` or secrets; your host `.env` remains the source of truth
+- **Post-restore Foundry re-sync required**: Foundry sync fields (`foundryActorId`, `foundrySceneId`, `syncStatus`) are cleared on restore — you must re-sync to Foundry VTT via the Bulk Sync button after restoring
+- **URL**: http://localhost:3000/backups (requires login)
+
+### ⚔️ Combat Enhancement System
 - **Automatic Token Placement**: Sync sessions with encounters to auto-place enemy tokens
   - Smart room selection (skips player spawn, filters by size, distributes encounters)
   - Intelligent positioning (single enemy: center, 2-4: circular, 5+: grid formation)
@@ -274,6 +302,7 @@ See `make help` for the complete list of commands.
 
 5. **Access the application**
    - **Web UI**: http://localhost:3000
+   - **Character Creator** (public, no login): http://localhost:3000/character-creator
    - **API**: http://localhost:3001
    - **Foundry VTT**: http://localhost:30000
 
@@ -698,6 +727,43 @@ for a in data['actors']:
 "
 ```
 
+### Character Creator: Test Without Login
+
+The character creator API requires **no auth token**. Test directly:
+
+```bash
+# Manual sync — build your own character payload
+curl -s -X POST http://localhost:3001/api/characters/sync \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Thordak Ironveil",
+    "race": "Dwarf",
+    "subrace": "Hill Dwarf",
+    "class": "Fighter",
+    "background": "Soldier",
+    "abilityScores": {"str":15,"dex":13,"con":14,"int":10,"wis":12,"cha":8},
+    "chosenSkills": ["ath","itm"],
+    "alignment": "Lawful Good",
+    "backstory": "A veteran soldier seeking redemption.",
+    "startingEquipment": ["Chain Mail","Longsword","Shield"],
+    "startingGold": 10,
+    "scoreMethod": "standard"
+  }' | python3 -m json.tool
+```
+
+```bash
+# AI generation — describe a concept, get back a full CharacterData object
+curl -s -X POST http://localhost:3001/api/characters/generate-ai \
+  -H "Content-Type: application/json" \
+  -d '{"concept": "A gruff half-orc barbarian who was raised by wolves and distrusts cities"}' \
+  | python3 -m json.tool
+```
+
+Or open the **browser wizard** (no login required):
+```
+http://localhost:3000/character-creator
+```
+
 ### Alternative: Bulk Sync Everything
 
 Instead of syncing individually, sync all maps + NPCs + lore for a campaign at once:
@@ -763,6 +829,45 @@ curl -s -X POST "http://localhost:3001/api/foundry/campaigns/$CAMP_ID/bulk" \
 | GET | `/api/foundry/scenes` | List scenes from Foundry |
 | GET | `/api/foundry/actors` | List actors from Foundry |
 
+### Backup & Restore
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/backups/full` | Download full system backup zip |
+| GET | `/api/backups/campaigns/:campaignId` | Download campaign backup zip |
+| POST | `/api/backups/restore/full` | Upload + restore full backup (multipart, field: `backup`) |
+| POST | `/api/backups/restore/campaign` | Upload + restore as new campaign |
+| POST | `/api/backups/restore/campaign/:campaignId` | Upload + merge into existing campaign |
+
+> **Important:** After restoring a backup, all Foundry sync fields are cleared. You must re-sync to Foundry VTT (use the Bulk Sync button on the campaign page) to reconnect maps, NPCs, and lore to Foundry scenes, actors, and journals.
+
+### Character Creator (public — no auth required)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/characters/sync` | Create PC actor in Foundry from character data |
+| POST | `/api/characters/generate-ai` | Generate full character from a concept string (AI) |
+
+**`POST /api/characters/sync` body:**
+```json
+{
+  "name": "Thordak Ironveil",
+  "race": "Dwarf", "subrace": "Hill Dwarf",
+  "class": "Fighter",
+  "background": "Soldier",
+  "abilityScores": { "str": 15, "dex": 13, "con": 14, "int": 10, "wis": 12, "cha": 8 },
+  "chosenSkills": ["ath", "itm"],
+  "alignment": "Lawful Good",
+  "backstory": "A veteran soldier seeking redemption.",
+  "startingEquipment": ["Chain Mail", "Longsword", "Shield"],
+  "startingGold": 10,
+  "scoreMethod": "standard"
+}
+```
+
+**`POST /api/characters/generate-ai` body:**
+```json
+{ "concept": "A mysterious tiefling warlock bound to a shadowy patron" }
+```
+
 ## 🗂️ Project Structure
 
 ```
@@ -784,12 +889,15 @@ Lazy-Foundry-VTT/
 │   │   │   ├── campaigns.ts      # Campaign CRUD
 │   │   │   ├── sessions.ts       # Session management
 │   │   │   ├── generate.ts       # AI generation endpoints
-│   │   │   └── foundry.ts        # Foundry VTT sync endpoints
+│   │   │   ├── foundry.ts        # Foundry VTT sync endpoints
+│   │   │   ├── backups.ts        # Backup & restore endpoints (auth required)
+│   │   │   └── characters.ts     # PC creator sync + AI gen (public, no auth)
 │   │   └── services/
 │   │       ├── ai.ts             # Groq AI integration
 │   │       ├── mapGenerator.ts   # Procedural map + PNG rendering
 │   │       ├── tokenGenerator.ts # DiceBear + sharp token generation
-│   │       └── foundrySync.ts    # Foundry socket.io sync service
+│   │       ├── foundrySync.ts    # Foundry socket.io sync service
+│   │       └── backupService.ts  # Backup creation + restore logic
 │   ├── assets/                   # Generated maps/tokens (Docker volume)
 │   ├── Dockerfile
 │   └── package.json
@@ -798,8 +906,11 @@ Lazy-Foundry-VTT/
 │   │   ├── App.tsx               # Router + layout
 │   │   ├── components/           # Reusable components
 │   │   ├── context/AuthContext.tsx
-│   │   ├── pages/                # Dashboard, Campaign, Session, Login
-│   │   ├── services/api.ts       # Axios API client
+│   │   ├── data/dnd5e.ts         # PHB static data (races, classes, backgrounds, skills)
+│   │   ├── pages/
+│   │   │   ├── CharacterCreator.tsx  # 7-step PC wizard (public route)
+│   │   │   └── ...               # Dashboard, Campaign, Session, Login
+│   │   ├── services/api.ts       # API client
 │   │   └── types/index.ts
 │   ├── Dockerfile
 │   └── package.json
@@ -866,10 +977,8 @@ After the one-time license acceptance, everything is fully automated.
 - **Background**: PNG served from shared Docker volume at `lazy-foundry-assets/maps/`
 
 ### Foundry Actor Data Format (D&D 5e)
-- **Type**: `npc`
-- **Abilities**: STR, DEX, CON, INT, WIS, CHA with values
-- **Biography**: HTML-formatted description and background
-- **Token image**: Served from shared volume at `lazy-foundry-assets/tokens/`
+- **NPC type** (`type: 'npc'`): abilities, biography, token image from shared volume
+- **PC type** (`type: 'character'`): full dnd5e system payload — abilities, HP/max, AC flat, speed, skill proficiencies (0/1), currency (gp), details (race, background, alignment, biography HTML)
 - **Token display**: Name on hover, health bar
 
 ## 📊 Database Schema
@@ -1172,7 +1281,7 @@ MIT License - See LICENSE file for details
 
 ## 🎯 Project Status
 
-**Phase 6 Complete** - Production Ready! ✅
+**Phase 6 + Character Creator** - Production Ready! ✅
 
 - ✅ Core features implemented
 - ✅ AI integration complete
@@ -1181,6 +1290,7 @@ MIT License - See LICENSE file for details
 - ✅ Production hardening complete
 - ✅ Comprehensive documentation
 - ✅ Easy deployment with Make
+- ✅ **Player Character Creator** — public 7-step wizard with AI generation and Foundry sync
 
 **Ready for real campaigns!** 🎲
 

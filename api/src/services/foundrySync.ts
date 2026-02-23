@@ -39,6 +39,34 @@ interface FoundryDocumentResult {
  * 5. Connect socket.io with session as query parameter
  * 6. Use 'modifyDocument' socket event for all CRUD operations
  */
+export interface CompendiumEntry {
+  _id: string;
+  name: string;
+  img?: string;
+  prototypeToken?: {
+    texture?: { src?: string };
+    width?: number;
+    height?: number;
+  };
+}
+
+export interface CompendiumMatch {
+  found: true;
+  img: string;
+  prototypeToken: {
+    texture: { src: string };
+    width: number;
+    height: number;
+  };
+  name: string;
+}
+
+export interface WorldUser {
+  _id: string;
+  name: string;
+  role: number; // 1=Player, 2=Trusted, 3=Assistant, 4=Gamemaster
+}
+
 export class FoundrySyncService {
   private baseUrl: string;
   private adminPassword: string;
@@ -47,6 +75,9 @@ export class FoundrySyncService {
   private sessionCookie: string | null = null;
   private gmUserId: string | null = null;
   private connected = false;
+  private compendiumCache: Map<string, CompendiumEntry[]> = new Map();
+  private itemCompendiumCache: Map<string, Record<string, unknown>[]> = new Map();
+  private worldUsersCache: WorldUser[] = [];
 
   constructor() {
     this.baseUrl = FOUNDRY_URL;
@@ -274,6 +305,9 @@ export class FoundrySyncService {
 
       console.log(`[FoundrySync] Found ${users.length} user(s) in world`);
 
+      // Cache all users for player assignment feature
+      this.worldUsersCache = users;
+
       // Find the Gamemaster (role 4 = GAMEMASTER)
       const gm = users.find((u) => u.role === 4);
       if (!gm) {
@@ -423,6 +457,116 @@ export class FoundrySyncService {
     }
   }
 
+  // ─── Compendium Search ──────────────────────────────────────────
+
+  /**
+   * Search a compendium pack for a monster by name.
+   * Caches the full compendium index on first call for fast repeated lookups.
+   * Returns compendium img and prototypeToken data if found, null otherwise.
+   */
+  async searchCompendium(pack: string, name: string): Promise<CompendiumMatch | null> {
+    try {
+      await this.ensureConnected();
+
+      if (!this.compendiumCache.has(pack)) {
+        console.log(`[FoundrySync] Loading compendium pack "${pack}"...`);
+        const result = await this.emitAndWait('modifyDocument', {
+          action: 'get',
+          type: 'Actor',
+          operation: {
+            query: {},
+            pack,
+            broadcast: false,
+          },
+        }, 30000);
+
+        if (result.error) {
+          console.warn(`[FoundrySync] Failed to load compendium "${pack}":`, result.error.message);
+          return null;
+        }
+
+        const entries = (result.result as CompendiumEntry[]) || [];
+        this.compendiumCache.set(pack, entries);
+        console.log(`[FoundrySync] Cached ${entries.length} entries from "${pack}"`);
+      }
+
+      const entries = this.compendiumCache.get(pack)!;
+      const searchName = name.toLowerCase().trim();
+
+      // Exact case-insensitive match
+      const match = entries.find(e => e.name.toLowerCase() === searchName);
+
+      if (!match) return null;
+
+      const img = match.img || '';
+      const textureSrc = match.prototypeToken?.texture?.src || img;
+      const width = match.prototypeToken?.width || 1;
+      const height = match.prototypeToken?.height || 1;
+
+      if (!img && !textureSrc) return null;
+
+      console.log(`[FoundrySync] Compendium match: "${name}" -> "${match.name}" (img: ${img})`);
+
+      return {
+        found: true,
+        img,
+        prototypeToken: {
+          texture: { src: textureSrc },
+          width,
+          height,
+        },
+        name: match.name,
+      };
+    } catch (error) {
+      console.warn(`[FoundrySync] Compendium search failed for "${name}":`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Search an Item compendium pack by name, returning the full item document.
+   * Used to embed class, subclass, and equipment items when creating PC actors.
+   * Caches the full pack on first call; subsequent lookups are in-memory.
+   * Returns null if the pack fails to load or the item is not found.
+   */
+  async findCompendiumItem(pack: string, name: string): Promise<Record<string, unknown> | null> {
+    try {
+      await this.ensureConnected();
+
+      if (!this.itemCompendiumCache.has(pack)) {
+        console.log(`[FoundrySync] Loading item compendium "${pack}"...`);
+        const result = await this.emitAndWait('modifyDocument', {
+          action: 'get',
+          type: 'Item',
+          operation: { query: {}, pack, broadcast: false },
+        }, 30000);
+
+        if (result.error) {
+          console.warn(`[FoundrySync] Failed to load item compendium "${pack}":`, result.error.message);
+          this.itemCompendiumCache.set(pack, []); // cache empty to avoid repeated retries
+          return null;
+        }
+
+        const entries = (result.result as Record<string, unknown>[]) || [];
+        this.itemCompendiumCache.set(pack, entries);
+        console.log(`[FoundrySync] Cached ${entries.length} items from "${pack}"`);
+      }
+
+      const entries = this.itemCompendiumCache.get(pack)!;
+      const searchName = name.toLowerCase().trim();
+      const match = entries.find(e => (e.name as string)?.toLowerCase() === searchName);
+
+      if (match) {
+        console.log(`[FoundrySync] Item match: "${name}" in "${pack}"`);
+      }
+
+      return match ?? null;
+    } catch (error) {
+      console.warn(`[FoundrySync] Item lookup failed "${name}" in "${pack}":`, error);
+      return null;
+    }
+  }
+
   // ─── Public API ───────────────────────────────────────────────
 
   /**
@@ -529,10 +673,24 @@ export class FoundrySyncService {
 
   /**
    * Delete a scene from Foundry VTT.
+   * Checks existence first to avoid crashing Foundry when deleting non-existent documents.
    */
   async deleteScene(sceneId: string): Promise<FoundryResponse> {
     try {
       await this.ensureConnected();
+
+      // Foundry crashes if asked to delete a document that doesn't exist.
+      // Fetch all scenes and confirm this ID is present before attempting deletion.
+      const existing = await this.emitAndWait('modifyDocument', {
+        action: 'get',
+        type: 'Scene',
+        operation: { query: {}, broadcast: false },
+      });
+      const scenes = (existing.result as Array<{ _id: string }>) || [];
+      if (!scenes.some((s) => s._id === sceneId)) {
+        console.log(`[FoundrySync] Scene ${sceneId} not found in Foundry, skipping delete`);
+        return { success: true };
+      }
 
       const result = await this.emitAndWait('modifyDocument', {
         action: 'delete',
@@ -547,6 +705,7 @@ export class FoundrySyncService {
         return { success: false, error: result.error.message };
       }
 
+      console.log(`[FoundrySync] Scene deleted: ${sceneId}`);
       return { success: true };
     } catch (error) {
       return {
@@ -559,11 +718,27 @@ export class FoundrySyncService {
   /**
    * Create an actor (NPC) in Foundry VTT.
    */
+  getWorldUsers(): WorldUser[] {
+    return this.worldUsersCache;
+  }
+
+  getPlayerUsers(): WorldUser[] {
+    // roles: 1=Player, 2=Trusted Player, 3=Assistant GM — exclude GM (4)
+    return this.worldUsersCache.filter(u => u.role < 4);
+  }
+
   async createActor(actorData: {
     name: string;
     type: string;
     img?: string;
+    prototypeToken?: {
+      texture?: { src: string };
+      width?: number;
+      height?: number;
+    };
     system?: Record<string, unknown>;
+    ownership?: Record<string, number>;
+    items?: unknown[];
   }): Promise<FoundryResponse<{ _id: string }>> {
     try {
       await this.ensureConnected();
@@ -725,6 +900,101 @@ export class FoundrySyncService {
   }
 
   /**
+   * Create a Combat encounter in Foundry VTT.
+   * A Combat represents an encounter in Foundry's combat tracker.
+   */
+  async createCombat(sceneId: string, options?: {
+    name?: string;
+    active?: boolean;
+  }): Promise<FoundryResponse<{ _id: string }>> {
+    try {
+      await this.ensureConnected();
+
+      const result = await this.emitAndWait('modifyDocument', {
+        action: 'create',
+        type: 'Combat',
+        operation: {
+          data: [{
+            scene: sceneId,
+            active: options?.active ?? false,
+          }],
+          broadcast: true,
+        },
+      });
+
+      if (result.error) {
+        console.error('[FoundrySync] Combat creation error:', result.error.message);
+        return { success: false, error: result.error.message };
+      }
+
+      const created = (result.result as Array<{ _id: string }>)?.[0];
+      console.log(`[FoundrySync] Combat created: ${created?._id} for scene ${sceneId}`);
+      return { success: true, data: { _id: created?._id } };
+    } catch (error) {
+      console.error('[FoundrySync] Failed to create combat:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Create Combatants within a Combat encounter.
+   * Each combatant links a token on the scene to the combat tracker.
+   */
+  async createCombatants(
+    combatId: string,
+    combatants: Array<{
+      actorId: string;
+      tokenId: string;
+      sceneId: string;
+      name?: string;
+      initiative?: number | null;
+      hidden?: boolean;
+    }>
+  ): Promise<FoundryResponse<Array<{ _id: string }>>> {
+    try {
+      await this.ensureConnected();
+
+      const combatantData = combatants.map((c) => ({
+        actorId: c.actorId,
+        tokenId: c.tokenId,
+        sceneId: c.sceneId,
+        name: c.name,
+        initiative: c.initiative ?? null,
+        hidden: c.hidden ?? false,
+        defeated: false,
+      }));
+
+      const result = await this.emitAndWait('modifyDocument', {
+        action: 'create',
+        type: 'Combatant',
+        operation: {
+          data: combatantData,
+          parentUuid: `Combat.${combatId}`,
+          broadcast: true,
+        },
+      });
+
+      if (result.error) {
+        console.error('[FoundrySync] Combatant creation error:', result.error.message);
+        return { success: false, error: result.error.message };
+      }
+
+      const created = (result.result as Array<{ _id: string }>) || [];
+      console.log(`[FoundrySync] Created ${created.length} combatant(s) in combat ${combatId}`);
+      return { success: true, data: created };
+    } catch (error) {
+      console.error('[FoundrySync] Failed to create combatants:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
    * Get all actors from Foundry VTT.
    */
   async getActors(): Promise<FoundryResponse<Array<{ _id: string; name: string }>>> {
@@ -753,6 +1023,76 @@ export class FoundrySyncService {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
       };
+    }
+  }
+
+  /**
+   * Delete an actor from Foundry VTT.
+   * Checks existence first to avoid crashing Foundry when deleting non-existent documents.
+   */
+  async deleteActor(actorId: string): Promise<FoundryResponse> {
+    try {
+      await this.ensureConnected();
+
+      // Foundry crashes if asked to delete a document that doesn't exist.
+      // Fetch all actors and confirm this ID is present before attempting deletion.
+      const existing = await this.emitAndWait('modifyDocument', {
+        action: 'get',
+        type: 'Actor',
+        operation: { query: {}, broadcast: false },
+      });
+      const actors = (existing.result as Array<{ _id: string }>) || [];
+      if (!actors.some((a) => a._id === actorId)) {
+        console.log(`[FoundrySync] Actor ${actorId} not found in Foundry, skipping delete`);
+        return { success: true };
+      }
+
+      const result = await this.emitAndWait('modifyDocument', {
+        action: 'delete',
+        type: 'Actor',
+        operation: {
+          ids: [actorId],
+          broadcast: true,
+        },
+      });
+
+      if (result.error) {
+        return { success: false, error: result.error.message };
+      }
+
+      console.log(`[FoundrySync] Actor deleted: ${actorId}`);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  async deleteJournalEntry(journalId: string): Promise<FoundryResponse> {
+    try {
+      await this.ensureConnected();
+      const existing = await this.emitAndWait('modifyDocument', {
+        action: 'get',
+        type: 'JournalEntry',
+        operation: { query: {}, broadcast: false },
+      });
+      const journals = (existing.result as Array<{ _id: string }>) || [];
+      if (!journals.some((j) => j._id === journalId)) {
+        console.log(`[FoundrySync] Journal ${journalId} not found in Foundry, skipping delete`);
+        return { success: true };
+      }
+      const result = await this.emitAndWait('modifyDocument', {
+        action: 'delete',
+        type: 'JournalEntry',
+        operation: { ids: [journalId], broadcast: true },
+      });
+      if (result.error) return { success: false, error: result.error.message };
+      console.log(`[FoundrySync] Journal deleted: ${journalId}`);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 

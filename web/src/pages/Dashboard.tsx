@@ -47,6 +47,9 @@ export function Dashboard() {
           <h1 className="text-xl font-bold">Lazy Foundry VTT</h1>
           <div className="flex items-center gap-4">
             <span className="text-gray-400">Welcome, {user?.username}</span>
+            <Link to="/backups" className="text-sm text-gray-400 hover:text-white">
+              Backups
+            </Link>
             <button
               onClick={logout}
               className="text-sm text-gray-400 hover:text-white"

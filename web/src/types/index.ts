@@ -141,12 +141,18 @@ export interface NPC {
   motivations: string[];
   background?: string;
   stats?: {
-    strength: number;
-    dexterity: number;
-    constitution: number;
-    intelligence: number;
-    wisdom: number;
-    charisma: number;
+    strength?: number;
+    dexterity?: number;
+    constitution?: number;
+    intelligence?: number;
+    wisdom?: number;
+    charisma?: number;
+    // Monster stats
+    hitPoints?: number;
+    armorClass?: number;
+    challengeRating?: string;
+    size?: string;
+    abilities?: string[];
   };
   tokenImageUrl?: string;
   foundryActorId?: string;
@@ -185,9 +191,23 @@ export interface MapData {
       type: string;
     }>;
     encounters?: Array<{
-      location: string;
+      location?: string;
+      name?: string;
       description: string;
       difficulty: string;
+      challengeRating?: string;
+      enemies?: Array<{
+        name: string;
+        count: number;
+        cr: string;
+        hitPoints: number;
+        armorClass: number;
+        abilities?: string[];
+        tactics?: string;
+      }>;
+      terrain?: string;
+      tacticalNotes?: string;
+      rewards?: string[];
     }>;
     atmosphere?: unknown;
     hazards?: unknown[];
@@ -232,6 +252,82 @@ export interface PlayerBackground {
   flaws: string;
   hooks: string[];
   reasonsForAdventure: string;
+}
+
+export interface AbilityScores {
+  str: number;
+  dex: number;
+  con: number;
+  int: number;
+  wis: number;
+  cha: number;
+}
+
+export interface CharacterData {
+  name: string;
+  race: string;
+  subrace?: string;
+  class: string;
+  subclass?: string;
+  background: string;
+  abilityScores: AbilityScores;
+  chosenSkills: string[];       // Foundry skill keys e.g. ['acr', 'ste']
+  alignment: string;
+  backstory: string;
+  personalityTraits?: string[];
+  ideals?: string;
+  bonds?: string;
+  flaws?: string;
+  startingEquipment: string[];  // item name strings
+  startingGold: number;
+  scoreMethod: 'standard' | 'pointbuy';
+  hpRoll?: number;              // if set, use this HP instead of max hit die
+  foundryUserId?: string;       // Foundry player _id to assign actor ownership
+}
+
+export interface StoreItem {
+  name: string;
+  category: string;
+  rarity: 'common' | 'uncommon' | 'rare' | 'very rare' | 'legendary';
+  quantity: number;
+  priceGp: number;
+  isMagic: boolean;
+  description?: string;
+}
+
+export interface StoreData {
+  id: string;
+  campaignId?: string;
+  name: string;
+  shopkeeperName: string;
+  shopkeeperRace: string;
+  shopkeeperPersonality: string;
+  description: string;
+  storeType: string;
+  settlementSize: string;
+  racialInfluence: string;
+  biome: string;
+  inventory: StoreItem[];
+  totalValue: number;
+  foundryJournalId?: string;
+  itemCount?: number;   // summary-only
+  parameters?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface RestoreResult {
+  success: boolean;
+  manifest: {
+    version: string;
+    type: 'full' | 'campaign';
+    campaignId?: string;
+    campaignName?: string;
+    createdAt: string;
+    records: Record<string, number>;
+    assets: { maps: number; tokens: number };
+  };
+  created: Record<string, number>;
+  errors: string[];
 }
 
 export interface TokenData {
