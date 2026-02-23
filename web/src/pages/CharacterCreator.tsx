@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   RACES, CLASSES, BACKGROUNDS, SKILLS, ALIGNMENTS,
   STANDARD_ARRAY, POINT_BUY_COSTS, POINT_BUY_BUDGET,
@@ -8,6 +9,7 @@ import {
   type AbilityKey, type SuggestedArray,
 } from '../data/dnd5e';
 import type { CharacterData, AbilityScores } from '../types';
+import { PlayerStatus } from '../types';
 import { api } from '../services/api';
 
 // ─── Initial State ─────────────────────────────────────────────────────────
@@ -1400,6 +1402,9 @@ function parseImportedCharacter(raw: Record<string, unknown>): CharacterData | n
 // ─── Main Component ────────────────────────────────────────────────────────
 
 export function CharacterCreator() {
+  const [searchParams] = useSearchParams();
+  const playerId = searchParams.get('playerId') ?? undefined;
+
   const [step, setStep] = useState(1);
   const [character, setCharacter] = useState<CharacterData>(DEFAULT_CHARACTER);
   const [syncing, setSyncing] = useState(false);
@@ -1411,6 +1416,18 @@ export function CharacterCreator() {
   } | null>(null);
   const [showAIModal, setShowAIModal] = useState(false);
   const [importError, setImportError] = useState('');
+  const playerLoadedRef = useRef(false);
+
+  // If a playerId is in the URL (invite flow), pre-load their foundryUserId
+  useEffect(() => {
+    if (!playerId || playerLoadedRef.current) return;
+    playerLoadedRef.current = true;
+    api.getPlayerPortal(playerId).then(data => {
+      if (data.player.foundryUserId) {
+        setCharacter(c => ({ ...c, foundryUserId: data.player.foundryUserId }));
+      }
+    }).catch(() => { /* non-critical */ });
+  }, [playerId]);
 
   const canProceed = (): boolean => {
     switch (step) {
@@ -1498,6 +1515,16 @@ export function CharacterCreator() {
       const finalScores = applyRacialBonuses(character.abilityScores, character.race, character.subrace);
       const result = await api.syncCharacterToFoundry({ ...character, abilityScores: finalScores });
       setSyncResult({ success: true, foundryActorId: result.foundryActorId, name: result.name });
+
+      // If coming from invite flow, update the player record and mark as READY
+      if (playerId && result.foundryActorId) {
+        await api.updateCampaignPlayer(playerId, {
+          foundryActorId: result.foundryActorId,
+          characterName: result.name,
+          characterData: { ...character, abilityScores: finalScores },
+          status: PlayerStatus.READY,
+        }).catch(() => { /* non-critical */ });
+      }
     } catch (e) {
       setSyncResult({ success: false, error: (e as Error).message || 'Sync failed' });
     } finally {

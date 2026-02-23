@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import type { Campaign, Session, NPC, MapData, TimelineEvent, NPCStatus } from '../types';
-import { SessionStatus } from '../types';
+import type { Campaign, Session, NPC, MapData, TimelineEvent, NPCStatus, CampaignPlayer } from '../types';
+import { SessionStatus, PlayerStatus } from '../types';
 import { ErrorAlert } from '../components/LoadingSpinner';
 import { CRCalculator } from '../components/CRCalculator';
 
@@ -57,7 +57,14 @@ export function CampaignDetail() {
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
   const [npcStatuses, setNpcStatuses] = useState<Record<string, NPCStatus>>({});
   const [showCreateSessionModal, setShowCreateSessionModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'sessions' | 'lore' | 'npcs' | 'maps' | 'timeline'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'lore' | 'npcs' | 'maps' | 'timeline' | 'players'>('sessions');
+  const [players, setPlayers] = useState<CampaignPlayer[]>([]);
+  const [inviteCode, setInviteCode] = useState<string | undefined>();
+  const [newPlayerName, setNewPlayerName] = useState('');
+  const [addingPlayer, setAddingPlayer] = useState(false);
+  const [copiedInvite, setCopiedInvite] = useState(false);
+  const [fixingPerms, setFixingPerms] = useState<string | null>(null);
+  const [fixedPerms, setFixedPerms] = useState<string | null>(null);
   const [addingEncounters, setAddingEncounters] = useState<string | null>(null);
   const [generatingEncounters, setGeneratingEncounters] = useState(false);
   const [error, setError] = useState<string>('');
@@ -119,6 +126,16 @@ export function CampaignDetail() {
     }
   }, [id]);
 
+  const loadPlayers = useCallback(async () => {
+    try {
+      const { players: p, inviteCode: code } = await api.getCampaignPlayers(id!);
+      setPlayers(p);
+      setInviteCode(code);
+    } catch (error) {
+      console.error('Failed to load players:', error);
+    }
+  }, [id]);
+
   useEffect(() => {
     if (id) {
       loadCampaign();
@@ -127,8 +144,9 @@ export function CampaignDetail() {
       loadMaps();
       loadTimeline();
       loadNPCStatuses();
+      loadPlayers();
     }
-  }, [id, loadCampaign, loadSessions, loadNPCs, loadMaps, loadTimeline, loadNPCStatuses]);
+  }, [id, loadCampaign, loadSessions, loadNPCs, loadMaps, loadTimeline, loadNPCStatuses, loadPlayers]);
 
   useEffect(() => {
     const checkFoundryStatus = async () => {
@@ -451,6 +469,16 @@ export function CampaignDetail() {
             }`}
           >
             Timeline ({timelineEvents.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('players')}
+            className={`pb-3 px-1 border-b-2 ${
+              activeTab === 'players'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-gray-400 hover:text-white'
+            }`}
+          >
+            Players ({players.length})
           </button>
         </div>
 
@@ -1179,6 +1207,184 @@ export function CampaignDetail() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+        {/* Players Tab */}
+        {activeTab === 'players' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold">Players</h2>
+              <Link
+                to={`/campaigns/${id}/session-zero`}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded font-medium text-sm"
+              >
+                Session 0 Wizard
+              </Link>
+            </div>
+
+            {/* Invite Link */}
+            <div className="bg-indigo-900/20 rounded-lg p-4 border border-indigo-800/50">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-medium text-indigo-300">Invite Link</h3>
+                  {inviteCode ? (
+                    <p className="text-xs text-gray-400 mt-1 truncate max-w-sm">
+                      {`${window.location.origin}/join/${inviteCode}`}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500 mt-1">No invite link yet — click Generate to create one.</p>
+                  )}
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  {inviteCode && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/join/${inviteCode}`);
+                        setCopiedInvite(true);
+                        setTimeout(() => setCopiedInvite(false), 2000);
+                      }}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded text-sm font-medium transition-colors"
+                    >
+                      {copiedInvite ? 'Copied!' : 'Copy Link'}
+                    </button>
+                  )}
+                  <button
+                    onClick={async () => {
+                      try {
+                        const { inviteCode: code } = await api.generateInviteCode(id!);
+                        setInviteCode(code);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Failed to regenerate invite code');
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm font-medium text-gray-300 transition-colors"
+                    title="Generate a new invite code (old link stops working)"
+                  >
+                    {inviteCode ? 'Regenerate' : 'Generate'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Add Player Form */}
+            <form
+              onSubmit={async (e: React.FormEvent) => {
+                e.preventDefault();
+                if (!newPlayerName.trim()) return;
+                setAddingPlayer(true);
+                try {
+                  await api.addCampaignPlayer(id!, { playerName: newPlayerName.trim() });
+                  setNewPlayerName('');
+                  await loadPlayers();
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Failed to add player');
+                } finally {
+                  setAddingPlayer(false);
+                }
+              }}
+              className="flex gap-3"
+            >
+              <input
+                type="text"
+                value={newPlayerName}
+                onChange={(e) => setNewPlayerName(e.target.value)}
+                placeholder="Player name"
+                className="flex-1 px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm"
+              />
+              <button
+                type="submit"
+                disabled={addingPlayer || !newPlayerName.trim()}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded text-sm font-medium disabled:opacity-50"
+              >
+                {addingPlayer ? 'Adding...' : 'Add Player'}
+              </button>
+            </form>
+
+            {/* Roster */}
+            {players.length === 0 ? (
+              <div className="text-center py-12 bg-gray-800 rounded-lg border border-gray-700">
+                <p className="text-gray-400 mb-2">No players yet</p>
+                <p className="text-sm text-gray-500">Share the invite link or add players manually above</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-400 border-b border-gray-700">
+                      <th className="pb-2 font-medium">Player</th>
+                      <th className="pb-2 font-medium">Character</th>
+                      <th className="pb-2 font-medium">Status</th>
+                      <th className="pb-2 font-medium">Foundry</th>
+                      <th className="pb-2 font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-700">
+                    {players.map((player) => (
+                      <tr key={player.id} className="py-3">
+                        <td className="py-3 font-medium">{player.playerName}</td>
+                        <td className="py-3 text-gray-400">
+                          {player.characterName || <span className="text-gray-600">—</span>}
+                        </td>
+                        <td className="py-3">
+                          <span className={`px-2 py-0.5 rounded text-xs ${
+                            player.status === PlayerStatus.READY ? 'bg-green-500/20 text-green-400' :
+                            player.status === PlayerStatus.JOINED ? 'bg-blue-500/20 text-blue-400' :
+                            'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {player.status}
+                          </span>
+                        </td>
+                        <td className="py-3">
+                          {player.foundryUserId ? (
+                            <span className="text-xs text-green-400">User created</span>
+                          ) : (
+                            <span className="text-xs text-gray-600">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 text-right flex gap-3 justify-end">
+                          {player.foundryActorId && player.foundryUserId && (
+                            <button
+                              onClick={async () => {
+                                setFixingPerms(player.id);
+                                setFixedPerms(null);
+                                try {
+                                  await api.fixPlayerPermissions(player.id);
+                                  setFixedPerms(player.id);
+                                  setTimeout(() => setFixedPerms(null), 3000);
+                                } catch (err) {
+                                  setError(err instanceof Error ? err.message : 'Failed to fix permissions');
+                                } finally {
+                                  setFixingPerms(null);
+                                }
+                              }}
+                              disabled={fixingPerms === player.id}
+                              className="text-yellow-400 hover:text-yellow-300 text-xs disabled:opacity-50"
+                              title="Grant this player owner permissions on their Foundry actor"
+                            >
+                              {fixingPerms === player.id ? 'Fixing...' : fixedPerms === player.id ? '✓ Done' : 'Fix Perms'}
+                            </button>
+                          )}
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Remove ${player.playerName} from roster?`)) return;
+                              try {
+                                await api.removeCampaignPlayer(id!, player.id);
+                                await loadPlayers();
+                              } catch (err) {
+                                setError(err instanceof Error ? err.message : 'Failed to remove player');
+                              }
+                            }}
+                            className="text-red-400 hover:text-red-300 text-xs"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

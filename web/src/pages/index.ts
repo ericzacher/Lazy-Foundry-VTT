@@ -7,3 +7,6 @@ export { ManageCampaign } from './ManageCampaign';
 export { CharacterCreator } from './CharacterCreator';
 export { StoreGenerator } from './StoreGenerator';
 export { BackupManager } from './BackupManager';
+export { JoinCampaign } from './JoinCampaign';
+export { PlayerPortal } from './PlayerPortal';
+export { SessionZero } from './SessionZero';

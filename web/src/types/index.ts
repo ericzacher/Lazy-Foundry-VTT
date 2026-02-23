@@ -15,6 +15,7 @@ export interface Campaign {
   partyLevel: number;
   worldLore?: Record<string, unknown>;
   rules?: Record<string, unknown>;
+  inviteCode?: string;
   ownerId: string;
   createdAt: string;
   updatedAt: string;
@@ -385,4 +386,84 @@ export interface TokenData {
   };
   createdAt: string;
   updatedAt: string;
+}
+
+// ─── Player Onboarding Types ────────────────────────────────────
+
+export enum PlayerStatus {
+  INVITED = 'invited',
+  JOINED = 'joined',
+  READY = 'ready',
+}
+
+export interface CampaignPlayer {
+  id: string;
+  campaignId: string;
+  playerName: string;
+  foundryUserId?: string;
+  foundryActorId?: string;
+  characterName?: string;
+  characterData?: Record<string, unknown>;
+  status: PlayerStatus;
+  invitedAt: string;
+  joinedAt?: string;
+  updatedAt: string;
+}
+
+export interface JoinInfo {
+  campaign: {
+    id: string;
+    name: string;
+    setting?: string;
+    description?: string;
+    playerCount: number;
+    partyLevel: number;
+  };
+  players: Array<{
+    id: string;
+    playerName: string;
+    characterName?: string;
+    status: PlayerStatus;
+  }>;
+}
+
+export interface PlayerPortalData {
+  campaign: {
+    name: string;
+    setting?: string;
+    description?: string;
+    worldLore?: Record<string, unknown>;
+  };
+  player: CampaignPlayer;
+  sessions: Array<{ sessionNumber: number; title: string; summary?: string }>;
+  npcs: Array<{ name: string; role?: string; description?: string }>;
+  timeline: TimelineEvent[];
+  upcomingSession?: { title: string; scheduledDate?: string; sessionNumber: number };
+}
+
+export interface SessionZeroData {
+  campaign: {
+    id: string;
+    name: string;
+    setting?: string;
+    description?: string;
+    playerCount: number;
+    inviteCode?: string;
+  };
+  players: CampaignPlayer[];
+  allReady: boolean;
+  composition: {
+    classes: Record<string, number>;
+    races: Record<string, number>;
+    backgrounds: Record<string, number>;
+    roles: Record<string, number>;
+    abilitySpread: Record<string, number>;
+  };
+}
+
+export interface PartyHooks {
+  connections: Array<{ characters: string[]; connection: string }>;
+  partyHook: string;
+  tensions: Array<{ characters: string[]; tension: string }>;
+  sharedGoal: string;
 }

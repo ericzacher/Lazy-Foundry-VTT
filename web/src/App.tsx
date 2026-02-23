@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { Login, Register, Dashboard, CampaignDetail, SessionDetail, ManageCampaign, CharacterCreator, StoreGenerator, BackupManager } from './pages';
+import { Login, Register, Dashboard, CampaignDetail, SessionDetail, ManageCampaign, CharacterCreator, StoreGenerator, BackupManager, JoinCampaign, PlayerPortal, SessionZero } from './pages';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -91,6 +91,16 @@ function AppRoutes() {
         }
       />
       <Route path="/character-creator" element={<CharacterCreator />} />
+      <Route path="/join/:inviteCode" element={<JoinCampaign />} />
+      <Route path="/portal/:playerId" element={<PlayerPortal />} />
+      <Route
+        path="/campaigns/:id/session-zero"
+        element={
+          <ProtectedRoute>
+            <SessionZero />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/store-generator"
         element={

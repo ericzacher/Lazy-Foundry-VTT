@@ -12,6 +12,7 @@ import generateRoutes from './routes/generate';
 import foundryRoutes from './routes/foundry';
 import characterRoutes from './routes/characters';
 import storeRoutes from './routes/stores';
+import inviteRoutes from './routes/invite';
 import backupRoutes from './routes/backups';
 import healthRoutes from './routes/health';
 import { tracingMiddleware } from './middleware/tracing';
@@ -92,6 +93,7 @@ app.get('/api/health', (_req, res) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/characters', characterRoutes); // public — must be before /api (session) catch-all
+app.use('/api/invite', inviteRoutes);       // public — player join/portal routes
 app.use('/api/stores', storeRoutes);        // auth required (via router-level middleware)
 app.use('/api/backups', backupRoutes);      // auth required (via router-level middleware)
 app.use('/api/campaigns', campaignRoutes);

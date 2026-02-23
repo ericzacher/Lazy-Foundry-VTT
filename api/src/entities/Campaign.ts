@@ -12,6 +12,7 @@ import { User } from './User';
 import { Session } from './Session';
 import { NPC } from './NPC';
 import { Map } from './Map';
+import { CampaignPlayer } from './CampaignPlayer';
 
 @Entity('campaigns')
 export class Campaign {
@@ -45,6 +46,9 @@ export class Campaign {
   @Column({ type: 'jsonb', nullable: true })
   rules?: Record<string, unknown>;
 
+  @Column({ type: 'varchar', nullable: true, unique: true })
+  inviteCode?: string;
+
   @Column('uuid')
   ownerId!: string;
 
@@ -60,6 +64,9 @@ export class Campaign {
 
   @OneToMany(() => Map, (map) => map.campaign)
   maps!: Map[];
+
+  @OneToMany(() => CampaignPlayer, (player) => player.campaign)
+  players!: CampaignPlayer[];
 
   @CreateDateColumn()
   createdAt!: Date;

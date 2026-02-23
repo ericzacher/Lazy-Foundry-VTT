@@ -727,6 +727,114 @@ export class FoundrySyncService {
     return this.worldUsersCache.filter(u => u.role < 4);
   }
 
+  /**
+   * Create a new Foundry world user.
+   * Used to auto-create player accounts when they join a campaign via invite link.
+   * Empty password so players can join Foundry without one.
+   */
+  async createFoundryUser(name: string, role: number = 1): Promise<FoundryResponse<{ _id: string }>> {
+    try {
+      await this.ensureConnected();
+
+      const result = await this.emitAndWait('modifyDocument', {
+        type: 'User',
+        action: 'create',
+        operation: {
+          data: [{ name, role, password: '' }],
+          broadcast: true,
+        },
+      });
+
+      if (result.error) {
+        console.error('[FoundrySync] User creation error:', result.error.message);
+        return { success: false, error: result.error.message };
+      }
+
+      const created = (result.result as Array<{ _id: string }>)?.[0];
+      console.log(`[FoundrySync] User created: ${created?._id} (${name}, role=${role})`);
+
+      // Refresh cache so the new user is immediately available
+      await this.refreshWorldUsersCache();
+
+      return { success: true, data: { _id: created?._id } };
+    } catch (error) {
+      console.error('[FoundrySync] Failed to create user:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Update an existing Foundry user (e.g. set their default character).
+   */
+  async updateFoundryUser(userId: string, updates: Record<string, unknown>): Promise<FoundryResponse> {
+    try {
+      await this.ensureConnected();
+
+      const result = await this.emitAndWait('modifyDocument', {
+        type: 'User',
+        action: 'update',
+        operation: {
+          updates: [{ _id: userId, ...updates }],
+          broadcast: true,
+        },
+      });
+
+      if (result.error) {
+        return { success: false, error: result.error.message };
+      }
+
+      console.log(`[FoundrySync] User updated: ${userId}`);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Refresh the world users cache by reconnecting a temp socket and calling getJoinData.
+   * Called after creating a new Foundry user so the cache stays current.
+   */
+  async refreshWorldUsersCache(): Promise<void> {
+    try {
+      if (!this.sessionCookie) return;
+
+      const tempSock = io(this.baseUrl, {
+        transports: ['websocket'],
+        reconnection: false,
+        query: { session: this.sessionCookie },
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        tempSock.on('connect', () => resolve());
+        tempSock.on('connect_error', (err: Error) => reject(err));
+        setTimeout(() => reject(new Error('Socket connect timeout')), 10000);
+      });
+
+      const joinData = await new Promise<{ users?: Array<{ _id: string; name: string; role: number }> }>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Timeout getting join data')), 10000);
+        tempSock.emit('getJoinData', (data: { users?: Array<{ _id: string; name: string; role: number }> }) => {
+          clearTimeout(timer);
+          resolve(data);
+        });
+      });
+
+      tempSock.disconnect();
+
+      if (joinData.users && Array.isArray(joinData.users)) {
+        this.worldUsersCache = joinData.users;
+        console.log(`[FoundrySync] Refreshed user cache: ${joinData.users.length} user(s)`);
+      }
+    } catch (error) {
+      console.warn('[FoundrySync] Failed to refresh user cache (non-critical):', error);
+    }
+  }
+
   async createActor(actorData: {
     name: string;
     type: string;
@@ -1018,6 +1126,36 @@ export class FoundrySyncService {
         success: true,
         data: (result.result as Array<{ _id: string; name: string }>) || [],
       };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Update an existing actor in Foundry VTT (e.g. to patch ownership).
+   */
+  async updateActor(actorId: string, updates: Record<string, unknown>): Promise<FoundryResponse> {
+    try {
+      await this.ensureConnected();
+
+      const result = await this.emitAndWait('modifyDocument', {
+        action: 'update',
+        type: 'Actor',
+        operation: {
+          updates: [{ _id: actorId, ...updates }],
+          broadcast: true,
+        },
+      });
+
+      if (result.error) {
+        return { success: false, error: result.error.message };
+      }
+
+      console.log(`[FoundrySync] Actor updated: ${actorId}`);
+      return { success: true };
     } catch (error) {
       return {
         success: false,

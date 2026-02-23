@@ -1,4 +1,4 @@
-import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData, CampaignSummary, TimelineEvent, NPCHistoryEntry, NPCStatus, CharacterData, StoreData, RestoreResult } from '../types';
+import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData, CampaignSummary, TimelineEvent, NPCHistoryEntry, NPCStatus, CharacterData, StoreData, RestoreResult, CampaignPlayer, JoinInfo, PlayerPortalData, SessionZeroData, PartyHooks } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -577,6 +577,83 @@ class ApiService {
     return this.request(`/api/generate/sessions/${sessionId}/continuity-scenario`, {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Player Onboarding ────────────────────────────────────────
+
+  // Campaign roster (auth-required)
+  async getCampaignPlayers(campaignId: string): Promise<{ players: CampaignPlayer[]; inviteCode?: string }> {
+    return this.request(`/api/campaigns/${campaignId}/players`);
+  }
+
+  async addCampaignPlayer(campaignId: string, data: { playerName: string }): Promise<CampaignPlayer> {
+    return this.request(`/api/campaigns/${campaignId}/players`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async removeCampaignPlayer(campaignId: string, playerId: string): Promise<void> {
+    return this.request<void>(`/api/campaigns/${campaignId}/players/${playerId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async generateInviteCode(campaignId: string): Promise<{ inviteCode: string }> {
+    return this.request(`/api/campaigns/${campaignId}/invite-code`, {
+      method: 'POST',
+    });
+  }
+
+  // Public invite endpoints (no auth)
+  async getJoinInfo(inviteCode: string): Promise<JoinInfo> {
+    return this.request(`/api/invite/join/${inviteCode}`);
+  }
+
+  async joinCampaign(inviteCode: string, playerName: string): Promise<{ player: CampaignPlayer; campaignId: string }> {
+    return this.request(`/api/invite/join/${inviteCode}`, {
+      method: 'POST',
+      body: JSON.stringify({ playerName }),
+    });
+  }
+
+  async updateCampaignPlayer(playerId: string, data: Partial<CampaignPlayer>): Promise<CampaignPlayer> {
+    return this.request(`/api/invite/players/${playerId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async fixPlayerPermissions(playerId: string): Promise<{ success: boolean }> {
+    return this.request(`/api/invite/players/${playerId}/fix-permissions`, { method: 'POST' });
+  }
+
+  // Player portal (public)
+  async getPlayerPortal(playerId: string): Promise<PlayerPortalData> {
+    return this.request(`/api/invite/portal/${playerId}`);
+  }
+
+  // Session Zero (auth-required)
+  async getSessionZero(campaignId: string): Promise<SessionZeroData> {
+    return this.request(`/api/campaigns/${campaignId}/session-zero`);
+  }
+
+  async generatePartyHooks(campaignId: string): Promise<PartyHooks> {
+    return this.request(`/api/campaigns/${campaignId}/session-zero/party-hooks`, {
+      method: 'POST',
+    });
+  }
+
+  async regenerateLoreForParty(campaignId: string): Promise<{ campaign: Campaign; lore: unknown }> {
+    return this.request(`/api/campaigns/${campaignId}/session-zero/regenerate-lore`, {
+      method: 'POST',
+    });
+  }
+
+  async createSessionOne(campaignId: string): Promise<{ session: Session; scenario: unknown }> {
+    return this.request(`/api/campaigns/${campaignId}/session-zero/create-session-one`, {
+      method: 'POST',
     });
   }
 }
