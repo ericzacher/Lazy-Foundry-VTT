@@ -6,3 +6,4 @@ export { SessionDetail } from './SessionDetail';
 export { ManageCampaign } from './ManageCampaign';
 export { CharacterCreator } from './CharacterCreator';
 export { StoreGenerator } from './StoreGenerator';
+export { BackupManager } from './BackupManager';

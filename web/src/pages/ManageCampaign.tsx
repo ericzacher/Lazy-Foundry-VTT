@@ -333,19 +333,34 @@ export function ManageCampaign() {
               Select items to delete individually or in bulk. Synced Foundry items are removed automatically.
             </p>
           </div>
-          {totalSelected > 0 && (
+          <div className="flex items-center gap-3 ml-4">
             <button
-              onClick={() =>
-                askConfirm(
-                  `Delete all ${totalSelected} selected items? This cannot be undone.`,
-                  deleteAllSelected
-                )
-              }
-              className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded font-medium text-sm whitespace-nowrap ml-4"
+              onClick={async () => {
+                try {
+                  setError('');
+                  await api.downloadCampaignBackup(id!);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Export failed');
+                }
+              }}
+              className="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded font-medium text-sm whitespace-nowrap"
             >
-              Delete {totalSelected} selected
+              Export Campaign
             </button>
-          )}
+            {totalSelected > 0 && (
+              <button
+                onClick={() =>
+                  askConfirm(
+                    `Delete all ${totalSelected} selected items? This cannot be undone.`,
+                    deleteAllSelected
+                  )
+                }
+                className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded font-medium text-sm whitespace-nowrap"
+              >
+                Delete {totalSelected} selected
+              </button>
+            )}
+          </div>
         </div>
 
         {/* ── Sessions ──────────────────────────────────── */}

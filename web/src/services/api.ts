@@ -1,4 +1,4 @@
-import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData, CampaignSummary, TimelineEvent, NPCHistoryEntry, NPCStatus, CharacterData, StoreData } from '../types';
+import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData, CampaignSummary, TimelineEvent, NPCHistoryEntry, NPCStatus, CharacterData, StoreData, RestoreResult } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -501,6 +501,69 @@ class ApiService {
 
   async exportStoreToFoundry(id: string): Promise<{ success: boolean; foundryJournalId: string }> {
     return this.request(`/api/stores/${id}/foundry-export`, { method: 'POST' });
+  }
+
+  // Backups
+  private async downloadBlob(endpoint: string, fallbackFilename: string): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    const res = await fetch(`${API_URL}${endpoint}`, { headers });
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const disposition = res.headers.get('Content-Disposition');
+    a.download = disposition?.match(/filename="(.+)"/)?.[1] || fallbackFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async downloadFullBackup(): Promise<void> {
+    return this.downloadBlob('/api/backups/full', 'lazy-foundry-full-backup.zip');
+  }
+
+  async downloadCampaignBackup(campaignId: string): Promise<void> {
+    return this.downloadBlob(`/api/backups/campaigns/${campaignId}`, 'lazy-foundry-campaign-backup.zip');
+  }
+
+  async restoreFullBackup(file: File): Promise<RestoreResult> {
+    const formData = new FormData();
+    formData.append('backup', file);
+    const headers: Record<string, string> = {};
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    const res = await fetch(`${API_URL}/api/backups/restore/full`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Restore failed' }));
+      throw new Error(err.error || 'Restore failed');
+    }
+    return res.json();
+  }
+
+  async restoreCampaignBackup(file: File, campaignId?: string): Promise<RestoreResult> {
+    const formData = new FormData();
+    formData.append('backup', file);
+    const headers: Record<string, string> = {};
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    const endpoint = campaignId
+      ? `/api/backups/restore/campaign/${campaignId}`
+      : '/api/backups/restore/campaign';
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Restore failed' }));
+      throw new Error(err.error || 'Restore failed');
+    }
+    return res.json();
   }
 
   async generateContinuityScenario(

@@ -315,6 +315,21 @@ export interface StoreData {
   createdAt: string;
 }
 
+export interface RestoreResult {
+  success: boolean;
+  manifest: {
+    version: string;
+    type: 'full' | 'campaign';
+    campaignId?: string;
+    campaignName?: string;
+    createdAt: string;
+    records: Record<string, number>;
+    assets: { maps: number; tokens: number };
+  };
+  created: Record<string, number>;
+  errors: string[];
+}
+
 export interface TokenData {
   id: string;
   campaignId: string;

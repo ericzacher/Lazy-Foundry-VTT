@@ -496,7 +496,7 @@ export function StoreGenerator() {
                 Saved Stores
               </h3>
               <SavedStoresList
-                campaignId={campaignId}
+                campaignId={config.campaignId}
                 onLoad={loaded => { setStore(loaded); setShowSaved(false); }}
                 refreshTrigger={refreshTrigger}
               />
