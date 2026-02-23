@@ -386,6 +386,10 @@ class ApiService {
     });
   }
 
+  async deleteFoundryJournal(journalId: string): Promise<void> {
+    return this.request<void>(`/api/foundry/journals/${journalId}`, { method: 'DELETE' });
+  }
+
   // Phase 5: Session Continuity
 
   async autoSummarizeSession(

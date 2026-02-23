@@ -626,6 +626,20 @@ router.delete('/actors/:actorId', async (req: AuthRequest, res: Response): Promi
   }
 });
 
+router.delete('/journals/:journalId', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const result = await foundrySyncService.deleteJournalEntry(req.params.journalId);
+    if (!result.success) {
+      res.status(500).json({ error: result.error || 'Failed to delete journal from Foundry' });
+      return;
+    }
+    res.status(204).send();
+  } catch (error) {
+    console.error('Delete Foundry journal error:', error);
+    res.status(500).json({ error: 'Failed to delete journal from Foundry' });
+  }
+});
+
 // Get list of scenes from Foundry
 router.get('/scenes', async (req: AuthRequest, res: Response): Promise<void> => {
   try {

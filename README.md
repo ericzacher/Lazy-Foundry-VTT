@@ -110,6 +110,18 @@ Generate maps, tokens, NPCs, lore, and scenarios using AI, then sync directly to
 - **AI character generation**: describe a concept ("a gruff dwarven soldier seeking redemption") — AI fills out all 7 steps, jump straight to review
 - **URL**: `http://localhost:3000/character-creator`
 
+### 💾 Backup & Restore
+- **Full system backup**: Download a zip containing all database records (campaigns, sessions, NPCs, maps, tokens, stores, timeline events) and asset files (map/token PNGs)
+- **Per-campaign export**: Export a single campaign with all its related data, available from the Backup Manager or the Manage Campaign page
+- **Foundry snapshot**: Full backups include a reference snapshot of actors, scenes, and journals from Foundry VTT (best-effort)
+- **Full restore**: Upload a full backup zip to restore all data with new UUIDs; users matched by email to avoid duplicates
+- **Campaign restore**: Import a campaign backup as a new campaign, or merge into an existing one
+- **ID remapping**: All foreign keys are remapped during restore — data integrity is preserved automatically
+- **Transactional**: Entire restore runs in a database transaction — if anything fails, nothing is committed
+- **No environment data**: Backups never include `.env` or secrets; your host `.env` remains the source of truth
+- **Post-restore Foundry re-sync required**: Foundry sync fields (`foundryActorId`, `foundrySceneId`, `syncStatus`) are cleared on restore — you must re-sync to Foundry VTT via the Bulk Sync button after restoring
+- **URL**: http://localhost:3000/backups (requires login)
+
 ### ⚔️ Combat Enhancement System
 - **Automatic Token Placement**: Sync sessions with encounters to auto-place enemy tokens
   - Smart room selection (skips player spawn, filters by size, distributes encounters)
@@ -814,6 +826,17 @@ curl -s -X POST "http://localhost:3001/api/foundry/campaigns/$CAMP_ID/bulk" \
 | GET | `/api/foundry/scenes` | List scenes from Foundry |
 | GET | `/api/foundry/actors` | List actors from Foundry |
 
+### Backup & Restore
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/backups/full` | Download full system backup zip |
+| GET | `/api/backups/campaigns/:campaignId` | Download campaign backup zip |
+| POST | `/api/backups/restore/full` | Upload + restore full backup (multipart, field: `backup`) |
+| POST | `/api/backups/restore/campaign` | Upload + restore as new campaign |
+| POST | `/api/backups/restore/campaign/:campaignId` | Upload + merge into existing campaign |
+
+> **Important:** After restoring a backup, all Foundry sync fields are cleared. You must re-sync to Foundry VTT (use the Bulk Sync button on the campaign page) to reconnect maps, NPCs, and lore to Foundry scenes, actors, and journals.
+
 ### Character Creator (public — no auth required)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -864,12 +887,14 @@ Lazy-Foundry-VTT/
 │   │   │   ├── sessions.ts       # Session management
 │   │   │   ├── generate.ts       # AI generation endpoints
 │   │   │   ├── foundry.ts        # Foundry VTT sync endpoints
+│   │   │   ├── backups.ts        # Backup & restore endpoints (auth required)
 │   │   │   └── characters.ts     # PC creator sync + AI gen (public, no auth)
 │   │   └── services/
 │   │       ├── ai.ts             # Groq AI integration
 │   │       ├── mapGenerator.ts   # Procedural map + PNG rendering
 │   │       ├── tokenGenerator.ts # DiceBear + sharp token generation
-│   │       └── foundrySync.ts    # Foundry socket.io sync service
+│   │       ├── foundrySync.ts    # Foundry socket.io sync service
+│   │       └── backupService.ts  # Backup creation + restore logic
 │   ├── assets/                   # Generated maps/tokens (Docker volume)
 │   ├── Dockerfile
 │   └── package.json

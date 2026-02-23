@@ -411,6 +411,15 @@ router.delete(
         return;
       }
 
+      const data = store.data as any;
+      if (data?.foundryJournalId) {
+        try {
+          await foundrySyncService.deleteJournalEntry(data.foundryJournalId);
+        } catch {
+          // best-effort cleanup — don't block store deletion
+        }
+      }
+
       await storeRepo.remove(store);
       logInfo('Store deleted', { id: req.params.id });
       res.status(204).send();

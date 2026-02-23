@@ -1070,6 +1070,32 @@ export class FoundrySyncService {
     }
   }
 
+  async deleteJournalEntry(journalId: string): Promise<FoundryResponse> {
+    try {
+      await this.ensureConnected();
+      const existing = await this.emitAndWait('modifyDocument', {
+        action: 'get',
+        type: 'JournalEntry',
+        operation: { query: {}, broadcast: false },
+      });
+      const journals = (existing.result as Array<{ _id: string }>) || [];
+      if (!journals.some((j) => j._id === journalId)) {
+        console.log(`[FoundrySync] Journal ${journalId} not found in Foundry, skipping delete`);
+        return { success: true };
+      }
+      const result = await this.emitAndWait('modifyDocument', {
+        action: 'delete',
+        type: 'JournalEntry',
+        operation: { ids: [journalId], broadcast: true },
+      });
+      if (result.error) return { success: false, error: result.error.message };
+      console.log(`[FoundrySync] Journal deleted: ${journalId}`);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
   /**
    * Create walls on a scene (embedded documents within Scene).
    */
