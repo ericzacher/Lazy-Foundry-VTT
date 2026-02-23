@@ -42,6 +42,9 @@ export class NPC {
   @Column({ type: 'jsonb', nullable: true })
   stats?: Record<string, unknown>;
 
+  @Column({ type: 'jsonb', nullable: true })
+  combatStats?: Record<string, unknown>;
+
   @Column({ type: 'varchar', nullable: true })
   tokenImageUrl?: string;
 

@@ -17,6 +17,7 @@ import {
   generatePlayerBackgrounds,
   generateMapDescription,
   generateDetailedEncounters,
+  generateMonsters,
 } from '../services/ai';
 import { generateContinuityScenario } from '../services/sessionContinuity';
 import { generateMap, saveMapImage } from '../services/mapGenerator';
