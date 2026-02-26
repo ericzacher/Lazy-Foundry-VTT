@@ -176,6 +176,7 @@ export interface MapData {
   foundrySceneId?: string;
   lastSyncedAt?: string;
   syncStatus?: 'never' | 'pending' | 'synced' | 'error';
+  fogOfWar?: boolean;
   version: number;
   createdAt: string;
   updatedAt: string;

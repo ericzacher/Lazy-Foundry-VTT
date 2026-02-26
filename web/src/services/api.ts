@@ -241,11 +241,12 @@ class ApiService {
       monsterType?: string;
       monstersPerEncounter?: number;
     },
-    mapSize?: 'small' | 'medium' | 'large'
+    mapSize?: 'small' | 'medium' | 'large',
+    fogOfWar?: boolean
   ): Promise<{ map: MapData }> {
     return this.request(`/api/generate/campaigns/${campaignId}/maps`, {
       method: 'POST',
-      body: JSON.stringify({ description, mapType, mapSize, sessionId, encounterConfig }),
+      body: JSON.stringify({ description, mapType, mapSize, sessionId, encounterConfig, fogOfWar }),
     });
   }
 

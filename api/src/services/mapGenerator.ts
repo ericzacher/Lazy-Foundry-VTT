@@ -136,7 +136,8 @@ export async function generateDungeonMap(
   gridWidth: number = 40,
   gridHeight: number = 30,
   gridSize: number = 100,
-  mapName: string = 'Generated Dungeon'
+  mapName: string = 'Generated Dungeon',
+  fogOfWar: boolean = true
 ): Promise<GeneratedMap> {
   // Generate dungeon layout with rot-js Digger
   const digger = new ROT.Map.Digger(gridWidth, gridHeight, {
@@ -179,7 +180,7 @@ export async function generateDungeonMap(
   }
 
   // Generate Foundry VTT data
-  const foundryScene = buildFoundryScene(tileMap, doors, rooms, gridWidth, gridHeight, gridSize, mapName);
+  const foundryScene = buildFoundryScene(tileMap, doors, rooms, gridWidth, gridHeight, gridSize, mapName, fogOfWar);
 
   // Render PNG image
   const imageBuffer = await renderMapImage(tileMap, doors, rooms, gridWidth, gridHeight, gridSize);
@@ -199,7 +200,8 @@ export async function generateCaveMap(
   gridWidth: number = 40,
   gridHeight: number = 30,
   gridSize: number = 100,
-  mapName: string = 'Generated Cave'
+  mapName: string = 'Generated Cave',
+  fogOfWar: boolean = true
 ): Promise<GeneratedMap> {
   // Use Cellular automaton for cave-like maps
   const cellular = new ROT.Map.Cellular(gridWidth, gridHeight, {
@@ -236,7 +238,7 @@ export async function generateCaveMap(
   const rooms = findCaveRooms(tileMap, gridWidth, gridHeight);
   const doors: DoorData[] = []; // Caves typically don't have doors
 
-  const foundryScene = buildFoundryScene(tileMap, doors, rooms, gridWidth, gridHeight, gridSize, mapName);
+  const foundryScene = buildFoundryScene(tileMap, doors, rooms, gridWidth, gridHeight, gridSize, mapName, fogOfWar);
   const imageBuffer = await renderMapImage(tileMap, doors, rooms, gridWidth, gridHeight, gridSize);
 
   return {
@@ -258,7 +260,8 @@ export async function generateMap(
   gridWidth: number = 40,
   gridHeight: number = 30,
   gridSize: number = 100,
-  mapName: string = 'Generated Map'
+  mapName: string = 'Generated Map',
+  fogOfWar: boolean = true
 ): Promise<GeneratedMap> {
   // Validate and cap dimensions to prevent memory issues
   const maxDimension = 80;
@@ -268,23 +271,23 @@ export async function generateMap(
   switch (mapType.toLowerCase()) {
     case 'cave':
     case 'wilderness':
-      return generateCaveMap(safeWidth, safeHeight, gridSize, mapName);
-    
+      return generateCaveMap(safeWidth, safeHeight, gridSize, mapName, fogOfWar);
+
     case 'town':
     case 'city':
-      return generateCityMap(safeWidth, safeHeight, gridSize, mapName);
-    
+      return generateCityMap(safeWidth, safeHeight, gridSize, mapName, fogOfWar);
+
     case 'building':
     case 'tavern':
-      return generateBuildingMap(safeWidth, safeHeight, gridSize, mapName);
+      return generateBuildingMap(safeWidth, safeHeight, gridSize, mapName, fogOfWar);
 
     case 'dungeon':
     case 'castle':
-      return generateDungeonMap(safeWidth, safeHeight, gridSize, mapName);
-    
+      return generateDungeonMap(safeWidth, safeHeight, gridSize, mapName, fogOfWar);
+
     case 'other':
     default:
-      return generateDungeonMap(safeWidth, safeHeight, gridSize, mapName);
+      return generateDungeonMap(safeWidth, safeHeight, gridSize, mapName, fogOfWar);
   }
 }
 
@@ -300,7 +303,8 @@ export async function generateCityMap(
   gridWidth: number = 40,
   gridHeight: number = 30,
   gridSize: number = 100,
-  mapName: string = 'Generated City'
+  mapName: string = 'Generated City',
+  fogOfWar: boolean = true
 ): Promise<GeneratedMap> {
   // City tile types: 0=building(wall), 1=street(floor), 2=plaza, 3=grass, 4=water, 5=market
   const tileMap: number[][] = Array.from({ length: gridHeight }, () =>
@@ -452,9 +456,7 @@ export async function generateCityMap(
     }
   }
 
-  const foundryScene = buildFoundryScene(wallMap, doors, rooms, gridWidth, gridHeight, gridSize, mapName);
-  foundryScene.tokenVision = false; // Cities are usually open
-  foundryScene.fog.exploration = false;
+  const foundryScene = buildFoundryScene(wallMap, doors, rooms, gridWidth, gridHeight, gridSize, mapName, fogOfWar);
   foundryScene.backgroundColor = '#8B9467'; // earthy green for surrounding terrain
 
   // Render with city colors
@@ -599,7 +601,8 @@ export async function generateBuildingMap(
   gridWidth: number = 30,
   gridHeight: number = 25,
   gridSize: number = 100,
-  mapName: string = 'Generated Building'
+  mapName: string = 'Generated Building',
+  fogOfWar: boolean = true
 ): Promise<GeneratedMap> {
   const tileMap: number[][] = Array.from({ length: gridHeight }, () =>
     Array(gridWidth).fill(0) // 0 = wall
@@ -757,7 +760,7 @@ export async function generateBuildingMap(
     }
   }
 
-  const foundryScene = buildFoundryScene(wallMap, doors, rooms, gridWidth, gridHeight, gridSize, mapName);
+  const foundryScene = buildFoundryScene(wallMap, doors, rooms, gridWidth, gridHeight, gridSize, mapName, fogOfWar);
   const imageBuffer = await renderBuildingImage(tileMap, doors, gridWidth, gridHeight, gridSize);
 
   return {
@@ -855,7 +858,8 @@ function buildFoundryScene(
   gridWidth: number,
   gridHeight: number,
   gridSize: number,
-  name: string
+  name: string,
+  fogOfWar: boolean = true
 ): FoundrySceneData {
   const pixelWidth = gridWidth * gridSize;
   const pixelHeight = gridHeight * gridSize;
@@ -874,9 +878,9 @@ function buildFoundryScene(
       alpha: 0.2,
     },
     backgroundColor: '#222222',
-    tokenVision: true,
+    tokenVision: fogOfWar,
     fog: {
-      exploration: true,
+      exploration: fogOfWar,
     },
     walls,
     lights,

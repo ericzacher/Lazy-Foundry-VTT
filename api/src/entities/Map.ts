@@ -73,6 +73,9 @@ export class Map {
   @Column({ type: 'jsonb', nullable: true })
   foundryData?: Record<string, unknown>;
 
+  @Column({ type: 'boolean', default: true })
+  fogOfWar!: boolean;
+
   @Column({ type: 'int', default: 1 })
   version!: number;
 

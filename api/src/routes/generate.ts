@@ -349,6 +349,7 @@ router.post(
     body('encounterConfig.partySize').optional().isInt({ min: 1, max: 10 }),
     body('encounterConfig.monsterType').optional().isString(),
     body('encounterConfig.monstersPerEncounter').optional().isInt({ min: 1, max: 12 }),
+    body('fogOfWar').optional().isBoolean(),
   ],
   async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
@@ -368,6 +369,7 @@ router.post(
       }
 
       const { description, mapType = 'other', mapSize = 'medium', sessionId, encounterConfig } = req.body;
+      const fogOfWar: boolean = req.body.fogOfWar !== false; // default true unless explicitly false
 
       // Map size presets (in grid units)
       const SIZE_PRESETS: Record<string, { width: number; height: number }> = {
@@ -443,7 +445,8 @@ Tone: ${campaign.tone || 'Balanced'}
         dims.width,
         dims.height,
         100, // 100px grid size for Foundry compatibility
-        mapDescription.name
+        mapDescription.name,
+        fogOfWar
       );
 
       // Save map to database first to get the ID
@@ -463,6 +466,7 @@ Tone: ${campaign.tone || 'Balanced'}
         dimensions: { width: generatedMap.gridWidth, height: generatedMap.gridHeight },
         details: mapDetails as unknown as Record<string, unknown>,
         foundryData: { ...generatedMap.foundryScene, rooms: generatedMap.rooms } as unknown as Record<string, unknown>,
+        fogOfWar,
       });
 
       await mapRepository().save(mapEntity);
