@@ -7,10 +7,10 @@ import {
   calcModifier, modString,
   getRaceData, getClassData, getBackgroundData, getSkillName,
   isSpellcaster, isPreparedCaster, getCantripCount, getSpellsKnown, getMaxSpellLevel,
-  getAsiLevelsForClass, FEATS,
+  getSpellSlots, getAsiLevelsForClass, FEATS,
   type AbilityKey, type SuggestedArray,
 } from '../data/dnd5e';
-import { getCantripsForClass, getSpellsByLevel } from '../data/spells';
+import { getCantripsForClass, getSpellsByLevel, type SpellEntry } from '../data/spells';
 import type { CharacterData, AbilityScores, AsiChoice } from '../types';
 import { PlayerStatus } from '../types';
 import { api } from '../services/api';
@@ -1450,6 +1450,50 @@ function parseImportedCharacter(raw: Record<string, unknown>): CharacterData | n
 
 // ─── Step: Spells ─────────────────────────────────────────────────────────────
 
+// Floating spell tooltip shown on card hover
+function SpellTooltip({ spell, x, y }: { spell: SpellEntry; x: number; y: number }) {
+  // Keep tooltip inside viewport
+  const LEFT_OFFSET = 16;
+  const TOP_OFFSET = -8;
+  const TOOLTIP_WIDTH = 260;
+  const safeX = x + LEFT_OFFSET + TOOLTIP_WIDTH > window.innerWidth
+    ? x - TOOLTIP_WIDTH - LEFT_OFFSET
+    : x + LEFT_OFFSET;
+  const safeY = Math.max(8, y + TOP_OFFSET);
+
+  const ordinal = (n: number) => n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
+
+  return (
+    <div
+      className="fixed z-50 pointer-events-none"
+      style={{ left: safeX, top: safeY, width: TOOLTIP_WIDTH }}
+    >
+      <div className="bg-gray-900 border border-indigo-700 rounded-lg shadow-xl p-3">
+        <div className="flex items-start justify-between gap-2 mb-1.5">
+          <span className="font-bold text-white text-sm leading-tight">{spell.name}</span>
+          <span className="text-xs text-indigo-300 whitespace-nowrap shrink-0">
+            {spell.level === 0 ? 'Cantrip' : `${ordinal(spell.level)}-level`}
+          </span>
+        </div>
+        <div className="text-xs text-gray-400 mb-2">{spell.school}</div>
+        <div className="flex gap-1 flex-wrap mb-2">
+          {spell.concentration && (
+            <span className="text-xs bg-amber-900/60 text-amber-300 px-1.5 py-0.5 rounded">Concentration</span>
+          )}
+          {spell.ritual && (
+            <span className="text-xs bg-teal-900/60 text-teal-300 px-1.5 py-0.5 rounded">Ritual</span>
+          )}
+        </div>
+        {spell.description && (
+          <p className="text-xs text-gray-300 leading-relaxed">{spell.description}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const SLOT_ORDINALS = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th'];
+
 function StepSpells({
   character, setCharacter,
 }: {
@@ -1458,6 +1502,9 @@ function StepSpells({
 }) {
   const [spellLevelFilter, setSpellLevelFilter] = useState(1);
   const [search, setSearch] = useState('');
+  const [hoveredSpell, setHoveredSpell] = useState<SpellEntry | null>(null);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+
   const level = character.level ?? 1;
   const cantripCount = getCantripCount(character.class, level);
   const maxSpellLevel = getMaxSpellLevel(character.class, level);
@@ -1465,6 +1512,9 @@ function StepSpells({
   const prepared = isPreparedCaster(character.class);
   const selectedCantrips = character.selectedCantrips ?? [];
   const selectedSpells = character.selectedSpells ?? [];
+
+  // Spell slots available at each level
+  const slotTable = getSpellSlots(character.class, level);
 
   const toggleCantrip = (name: string) => {
     setCharacter(c => {
@@ -1484,6 +1534,15 @@ function StepSpells({
     });
   };
 
+  const handleMouseEnter = (spell: SpellEntry, e: React.MouseEvent) => {
+    setHoveredSpell(spell);
+    setTooltipPos({ x: e.clientX, y: e.clientY });
+  };
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (hoveredSpell) setTooltipPos({ x: e.clientX, y: e.clientY });
+  };
+  const handleMouseLeave = () => setHoveredSpell(null);
+
   const allCantrips = getCantripsForClass(character.class).filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase())
   );
@@ -1491,8 +1550,13 @@ function StepSpells({
     s.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Slots available at currently-viewed spell level
+  const currentLevelSlots = slotTable[`spell${spellLevelFilter}`]?.max ?? 0;
+
   return (
-    <div>
+    <div onMouseMove={handleMouseMove}>
+      {hoveredSpell && <SpellTooltip spell={hoveredSpell} x={tooltipPos.x} y={tooltipPos.y} />}
+
       <h2 className="text-2xl font-bold mb-1">Choose Your Spells</h2>
       <p className="text-gray-400 mb-4">
         {character.class} — Level {level}.{' '}
@@ -1500,6 +1564,25 @@ function StepSpells({
           ? 'You prepare spells after a long rest (selection here is optional for reference).'
           : spellsKnown > 0 ? `Choose ${spellsKnown} spell${spellsKnown !== 1 ? 's' : ''} known.` : ''}
       </p>
+
+      {/* Spell slot summary bar */}
+      {maxSpellLevel > 0 && Object.keys(slotTable).length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+          <span className="text-xs text-gray-500 mr-1 self-center">Slots:</span>
+          {Object.entries(slotTable).map(([key, { max }]) => {
+            const slotLvl = parseInt(key.replace('spell', ''), 10);
+            return (
+              <span
+                key={key}
+                className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded flex items-center gap-1"
+              >
+                <span className="text-gray-500">{SLOT_ORDINALS[slotLvl]}</span>
+                <span className="text-indigo-300 font-semibold">{max}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* Search */}
       <input
@@ -1514,9 +1597,7 @@ function StepSpells({
       {cantripCount > 0 && (
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
-              Cantrips
-            </h3>
+            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Cantrips</h3>
             <span className={`text-xs px-2 py-0.5 rounded ${selectedCantrips.length === cantripCount ? 'bg-green-800 text-green-200' : 'bg-gray-700 text-gray-400'}`}>
               {selectedCantrips.length} / {cantripCount}
             </span>
@@ -1529,7 +1610,8 @@ function StepSpells({
                 <button
                   key={spell.name}
                   onClick={() => !disabled && toggleCantrip(spell.name)}
-                  title={spell.description ?? spell.name}
+                  onMouseEnter={e => handleMouseEnter(spell, e)}
+                  onMouseLeave={handleMouseLeave}
                   className={`p-2 rounded-lg border text-left text-xs transition-all ${
                     sel
                       ? 'border-indigo-500 bg-indigo-900/40 text-white'
@@ -1559,27 +1641,39 @@ function StepSpells({
                 {selectedSpells.length} / {spellsKnown} known
               </span>
             )}
-            {prepared && (
-              <span className="text-xs text-gray-500">Prepared caster — select for reference</span>
-            )}
           </div>
 
-          {/* Spell level tabs */}
+          {/* Spell level tabs with slot counts */}
           <div className="flex gap-1 mb-3 flex-wrap">
-            {Array.from({ length: maxSpellLevel }, (_, i) => i + 1).map(lvl => (
-              <button
-                key={lvl}
-                onClick={() => setSpellLevelFilter(lvl)}
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                  spellLevelFilter === lvl
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                }`}
-              >
-                {lvl === 1 ? '1st' : lvl === 2 ? '2nd' : lvl === 3 ? '3rd' : `${lvl}th`}
-              </button>
-            ))}
+            {Array.from({ length: maxSpellLevel }, (_, i) => i + 1).map(lvl => {
+              const slots = slotTable[`spell${lvl}`]?.max ?? 0;
+              const active = spellLevelFilter === lvl;
+              return (
+                <button
+                  key={lvl}
+                  onClick={() => setSpellLevelFilter(lvl)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                    active ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                  }`}
+                >
+                  <span>{SLOT_ORDINALS[lvl]}</span>
+                  {slots > 0 && (
+                    <span className={`text-xs rounded px-1 ${active ? 'bg-indigo-500/60 text-indigo-100' : 'bg-gray-600 text-gray-300'}`}>
+                      {slots}◇
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
+
+          {/* Info line for current level */}
+          {currentLevelSlots > 0 && (
+            <p className="text-xs text-gray-500 mb-2">
+              You have <span className="text-indigo-400 font-semibold">{currentLevelSlots}</span> {SLOT_ORDINALS[spellLevelFilter]}-level slot{currentLevelSlots !== 1 ? 's' : ''}.
+              {!prepared && spellsKnown > 0 && ` (${spellsKnown - selectedSpells.length} spell${spellsKnown - selectedSpells.length !== 1 ? 's' : ''} left to pick)`}
+            </p>
+          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {leveledSpells.map(spell => {
@@ -1589,7 +1683,8 @@ function StepSpells({
                 <button
                   key={spell.name}
                   onClick={() => !disabled && toggleSpell(spell.name)}
-                  title={spell.description ?? spell.name}
+                  onMouseEnter={e => handleMouseEnter(spell, e)}
+                  onMouseLeave={handleMouseLeave}
                   className={`p-2 rounded-lg border text-left text-xs transition-all ${
                     sel
                       ? 'border-indigo-500 bg-indigo-900/40 text-white'
@@ -1599,7 +1694,11 @@ function StepSpells({
                   }`}
                 >
                   <div className="font-semibold">{spell.name}</div>
-                  <div className="text-gray-500">{spell.school}{spell.concentration ? ' · Conc' : ''}{spell.ritual ? ' · Ritual' : ''}</div>
+                  <div className="text-gray-500">
+                    {spell.school}
+                    {spell.concentration ? ' · Conc' : ''}
+                    {spell.ritual ? ' · Ritual' : ''}
+                  </div>
                 </button>
               );
             })}
