@@ -386,37 +386,39 @@ router.post(
     });
     const model = process.env.GROQ_API_KEY ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini';
 
-    const systemPrompt = `You are a D&D 5e character creation assistant. Given a player's character concept, generate a complete D&D 5e level-1 character following PHB rules.
+    const systemPrompt = `You are a D&D 5e character creation assistant. Given a player's character concept, generate a complete D&D 5e character following PHB rules.
 
-You MUST respond with ONLY valid JSON (no markdown, no extra text) matching this exact structure:
+You MUST respond with ONLY a single valid JSON object. No markdown, no code fences, no extra text before or after the JSON.
+
+Required JSON structure (all fields required unless marked optional):
 {
-  "name": "string — a fitting fantasy name",
+  "name": "a fitting fantasy name as a string",
   "race": "one of: Human, Elf, Dwarf, Halfling, Dragonborn, Gnome, Half-Elf, Half-Orc, Tiefling",
-  "subrace": "optional: e.g. High Elf, Wood Elf, Drow, Hill Dwarf, Mountain Dwarf, Lightfoot, Stout, Forest Gnome, Rock Gnome — omit if race has no subraces",
+  "subrace": "optional string, e.g. High Elf / Wood Elf / Hill Dwarf / Lightfoot — omit for races with no subraces",
   "class": "one of: Barbarian, Bard, Cleric, Druid, Fighter, Monk, Paladin, Ranger, Rogue, Sorcerer, Warlock, Wizard",
   "background": "one of: Acolyte, Charlatan, Criminal, Entertainer, Folk Hero, Guild Artisan, Hermit, Noble, Outlander, Sage, Sailor, Soldier, Urchin",
   "abilityScores": {
-    "str": number (8-15 before racial),
-    "dex": number (8-15 before racial),
-    "con": number (8-15 before racial),
-    "int": number (8-15 before racial),
-    "wis": number (8-15 before racial),
-    "cha": number (8-15 before racial)
+    "str": 10,
+    "dex": 14,
+    "con": 13,
+    "int": 8,
+    "wis": 12,
+    "cha": 15
   },
-  "chosenSkills": ["array of 2-4 Foundry skill keys appropriate to the class and character, from: acr,ani,arc,ath,dec,his,ins,itm,inv,med,nat,prc,prf,per,rel,slt,ste,sur"],
+  "chosenSkills": ["acr", "ste"],
   "alignment": "one of: Lawful Good, Neutral Good, Chaotic Good, Lawful Neutral, True Neutral, Chaotic Neutral, Lawful Evil, Neutral Evil, Chaotic Evil",
-  "backstory": "2-3 paragraph backstory that fits the concept",
-  "startingEquipment": ["list of starting equipment items appropriate to the class"],
-  "startingGold": number (5-25),
+  "backstory": "2-3 paragraph backstory",
+  "startingEquipment": ["Longsword", "Chain Mail", "Shield"],
+  "startingGold": 15,
   "scoreMethod": "standard"
 }
 
 Rules:
-- Ability scores should use Standard Array values [15,14,13,12,10,8] distributed appropriately for the class
-- Choose race/subrace, class, and background that best match the concept
-- Background skills must be included in chosenSkills plus class skill choices
-- Equipment should match the class
-- Backstory should be 2-3 engaging paragraphs`;
+- abilityScores must use the Standard Array [15,14,13,12,10,8] distributed based on class needs — all 6 values must be integers, no text
+- chosenSkills must be 2-4 keys from: acr,ani,arc,ath,dec,his,ins,itm,inv,med,nat,prc,prf,per,rel,slt,ste,sur
+- startingGold must be an integer between 5 and 25
+- Match race/class/background to the concept; pick a culturally appropriate name
+- Backstory should be 2-3 engaging paragraphs in English`;
 
     try {
       logInfo('Generating AI character', { concept: concept.slice(0, 100) });
@@ -433,15 +435,36 @@ Rules:
 
       const raw = completion.choices[0]?.message?.content?.trim() ?? '';
 
-      // Strip markdown code blocks if present
-      const jsonStr = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
+      // Extract JSON: strip markdown fences, then grab first { ... } block
+      let jsonStr = raw
+        .replace(/^```json?\s*/i, '')
+        .replace(/```\s*$/, '')
+        .trim();
+      // If there's still non-JSON text before the opening brace, extract from first { to last }
+      const firstBrace = jsonStr.indexOf('{');
+      const lastBrace = jsonStr.lastIndexOf('}');
+      if (firstBrace > 0 || (firstBrace === -1 && lastBrace === -1)) {
+        if (firstBrace !== -1 && lastBrace !== -1) {
+          jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+        }
+      }
 
       let character: CharacterData;
       try {
-        character = JSON.parse(jsonStr);
+        const parsed = JSON.parse(jsonStr);
+        // Ensure all required numeric ability scores are actually numbers
+        const scores = parsed.abilityScores ?? {};
+        for (const key of ['str', 'dex', 'con', 'int', 'wis', 'cha']) {
+          if (typeof scores[key] !== 'number') {
+            scores[key] = parseInt(String(scores[key]), 10) || 10;
+          }
+        }
+        parsed.abilityScores = scores;
+        parsed.startingGold = typeof parsed.startingGold === 'number' ? parsed.startingGold : parseInt(String(parsed.startingGold), 10) || 10;
+        character = parsed;
       } catch {
-        logError('AI character generation: invalid JSON', { raw: raw.slice(0, 200) });
-        res.status(500).json({ error: 'AI returned invalid character data' });
+        logError('AI character generation: invalid JSON', { raw: raw.slice(0, 300) });
+        res.status(500).json({ error: 'AI returned invalid character data. Try again or use a simpler concept.' });
         return;
       }
 

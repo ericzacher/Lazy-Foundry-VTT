@@ -78,7 +78,9 @@ function applyRacialBonuses(base: AbilityScores, race: string, subrace?: string)
 }
 
 
-function calcProfBonus(): number { return 2; }
+function calcProfBonus(level: number): number {
+  return Math.floor((level - 1) / 4) + 2;
+}
 
 // ─── Step Components ───────────────────────────────────────────────────────
 
@@ -710,7 +712,7 @@ function StepSkills({
   };
 
   const finalScores = applyRacialBonuses(character.abilityScores, character.race, character.subrace);
-  const profBonus = calcProfBonus();
+  const profBonus = calcProfBonus(character.level ?? 1);
 
   return (
     <div>
@@ -904,22 +906,31 @@ function StepDetails({
   const conMod = calcModifier(finalScores.con);
   const dexMod = calcModifier(finalScores.dex);
   const hitDie = getClassData(character.class)?.hitDie ?? 8;
-  const maxHp = Math.max(1, hitDie + conMod);
+  const charLevel = character.level ?? 1;
+  const avgPerLevel = Math.max(1, Math.ceil(hitDie / 2) + 1 + conMod);
+  const maxHp = Math.max(charLevel, (hitDie + conMod) + (charLevel - 1) * avgPerLevel);
   const displayHp = character.hpRoll !== undefined ? character.hpRoll : maxHp;
-  const profBonus = calcProfBonus();
+  const profBonus = calcProfBonus(charLevel);
 
   const handleRollHp = () => {
     if (rolling || !character.class) return;
     setRolling(true);
-    const roll = Math.floor(Math.random() * hitDie) + 1;
-    const finalHp = Math.max(1, roll + conMod);
+    // Level 1: always max hit die + CON
+    let total = hitDie + conMod;
+    // Levels 2+: roll each level separately
+    let lastRoll = hitDie;
+    for (let l = 2; l <= charLevel; l++) {
+      lastRoll = Math.floor(Math.random() * hitDie) + 1;
+      total += Math.max(1, lastRoll + conMod);
+    }
+    const finalHp = Math.max(charLevel, total);
     let ticks = 0;
     const interval = setInterval(() => {
       setAnimDie(Math.floor(Math.random() * hitDie) + 1);
       ticks++;
       if (ticks >= 10) {
         clearInterval(interval);
-        setAnimDie(roll);
+        setAnimDie(lastRoll);
         setCharacter(c => ({ ...c, hpRoll: finalHp }));
         setRolling(false);
       }
@@ -1142,7 +1153,7 @@ function StepDetails({
             <div className="text-xs text-gray-500">Speed</div>
           </div>
           <div className="bg-gray-900 rounded-lg p-2 text-center">
-            <div className="text-lg font-bold text-yellow-400">1</div>
+            <div className="text-lg font-bold text-yellow-400">{charLevel}</div>
             <div className="text-xs text-gray-500">Level</div>
           </div>
         </div>
@@ -1151,22 +1162,29 @@ function StepDetails({
         <div className="bg-gray-900 rounded-lg p-3 border border-gray-800 mb-4">
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm">
-              <span className="text-gray-500">d{hitDie}</span>
-              {rolling ? (
-                <span className="text-red-400 font-bold mx-1 inline-block w-6 text-center animate-pulse">{animDie}</span>
-              ) : character.hpRoll !== undefined ? (
-                <span className="text-red-400 font-bold mx-1">{animDie}</span>
+              {charLevel === 1 ? (
+                <>
+                  <span className="text-gray-500">d{hitDie}</span>
+                  {rolling ? (
+                    <span className="text-red-400 font-bold mx-1 inline-block w-6 text-center animate-pulse">{animDie}</span>
+                  ) : (
+                    <span className="text-gray-400 mx-1">{character.hpRoll !== undefined ? animDie : hitDie}</span>
+                  )}
+                  <span className="text-gray-600">+</span>
+                  <span className={`mx-1 ${conMod >= 0 ? 'text-green-400' : 'text-red-400'}`}>{conMod >= 0 ? '+' : ''}{conMod}</span>
+                  <span className="text-gray-600 mr-1">CON</span>
+                </>
               ) : (
-                <span className="text-gray-400 mx-1">{hitDie}</span>
+                <>
+                  <span className="text-gray-500">Lv{charLevel} {character.class || '—'}</span>
+                  <span className="text-gray-600 mx-1">d{hitDie}</span>
+                  {rolling && <span className="text-red-400 font-bold mx-1 animate-pulse">{animDie}</span>}
+                </>
               )}
-              <span className="text-gray-600">+</span>
-              <span className={`mx-1 ${conMod >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {conMod >= 0 ? '+' : ''}{conMod}
-              </span>
-              <span className="text-gray-600">CON =</span>
+              <span className="text-gray-600">=</span>
               <span className="text-red-400 font-bold ml-1">{displayHp} HP</span>
               <span className="ml-2 text-xs text-gray-600">
-                {character.hpRoll !== undefined ? '(rolled)' : '(max)'}
+                {character.hpRoll !== undefined ? '(rolled)' : '(max avg)'}
               </span>
             </div>
             <div className="flex gap-2 shrink-0">
