@@ -264,6 +264,14 @@ export interface AbilityScores {
   cha: number;
 }
 
+/** One ASI or Feat choice at a milestone level. */
+export interface AsiChoice {
+  asiLevel: number;             // which class level this ASI falls on (e.g. 4, 8, ...)
+  type: 'asi' | 'feat';
+  improvements?: Partial<Record<keyof AbilityScores, number>>; // sum must = 2
+  feat?: string;                // feat name from FEATS[]
+}
+
 export interface CharacterData {
   name: string;
   race: string;
@@ -284,6 +292,10 @@ export interface CharacterData {
   scoreMethod: 'standard' | 'pointbuy';
   hpRoll?: number;              // if set, use this HP instead of max hit die
   foundryUserId?: string;       // Foundry player _id to assign actor ownership
+  level: number;                // 1–20, defaults to 1
+  selectedCantrips: string[];   // cantrip names
+  selectedSpells: string[];     // leveled spell names
+  asiChoices: AsiChoice[];      // one per achieved ASI milestone
 }
 
 export interface StoreItem {
@@ -433,6 +445,7 @@ export interface PlayerPortalData {
     setting?: string;
     description?: string;
     worldLore?: Record<string, unknown>;
+    partyLevel?: number;
   };
   player: CampaignPlayer;
   sessions: Array<{ sessionNumber: number; title: string; summary?: string }>;

@@ -38,7 +38,62 @@ interface CharacterData {
   startingGold: number;
   scoreMethod: 'standard' | 'pointbuy';
   hpRoll?: number;
-  foundryUserId?: string;  // Foundry player user _id for actor ownership
+  foundryUserId?: string;
+  level?: number;
+  selectedCantrips?: string[];
+  selectedSpells?: string[];
+}
+
+// ─── Spell Slot Tables ────────────────────────────────────────────────────────
+
+type CasterProgression = 'full' | 'half' | 'pact' | 'none';
+
+const CASTER_PROGRESSION: Record<string, CasterProgression> = {
+  Bard: 'full', Cleric: 'full', Druid: 'full', Sorcerer: 'full', Wizard: 'full',
+  Paladin: 'half', Ranger: 'half',
+  Warlock: 'pact',
+};
+
+const SPELL_SLOTS_FULL: number[][] = [
+  [],
+  [2,0,0,0,0,0,0,0,0], [3,0,0,0,0,0,0,0,0], [4,2,0,0,0,0,0,0,0], [4,3,0,0,0,0,0,0,0],
+  [4,3,2,0,0,0,0,0,0], [4,3,3,0,0,0,0,0,0], [4,3,3,1,0,0,0,0,0], [4,3,3,2,0,0,0,0,0],
+  [4,3,3,3,1,0,0,0,0], [4,3,3,3,2,0,0,0,0], [4,3,3,3,2,1,0,0,0], [4,3,3,3,2,1,0,0,0],
+  [4,3,3,3,2,1,1,0,0], [4,3,3,3,2,1,1,0,0], [4,3,3,3,2,1,1,1,0], [4,3,3,3,2,1,1,1,0],
+  [4,3,3,3,2,1,1,1,1], [4,3,3,3,3,1,1,1,1], [4,3,3,3,3,2,1,1,1], [4,3,3,3,3,2,2,1,1],
+];
+
+const SPELL_SLOTS_HALF: number[][] = [
+  [],
+  [0,0,0,0,0,0,0,0,0], [2,0,0,0,0,0,0,0,0], [3,0,0,0,0,0,0,0,0], [3,0,0,0,0,0,0,0,0],
+  [4,2,0,0,0,0,0,0,0], [4,2,0,0,0,0,0,0,0], [4,3,0,0,0,0,0,0,0], [4,3,0,0,0,0,0,0,0],
+  [4,3,2,0,0,0,0,0,0], [4,3,2,0,0,0,0,0,0], [4,3,3,0,0,0,0,0,0], [4,3,3,0,0,0,0,0,0],
+  [4,3,3,1,0,0,0,0,0], [4,3,3,1,0,0,0,0,0], [4,3,3,2,0,0,0,0,0], [4,3,3,2,0,0,0,0,0],
+  [4,3,3,3,1,0,0,0,0], [4,3,3,3,1,0,0,0,0], [4,3,3,3,2,0,0,0,0], [4,3,3,3,2,0,0,0,0],
+];
+
+// [slotCount, slotLevel] indexed by class level
+const PACT_SLOTS: Array<[number, number]> = [
+  [0,0], [1,1],[2,1],[2,2],[2,2],[2,3],[2,3],[2,4],[2,4],[2,5],[2,5],
+  [3,5],[3,5],[3,5],[3,5],[3,5],[3,5],[4,5],[4,5],[4,5],[4,5],
+];
+
+function buildSpellSlots(className: string, level: number): Record<string, { value: number; max: number; override: null }> {
+  const prog = CASTER_PROGRESSION[className] ?? 'none';
+  if (prog === 'none') return {};
+  const idx = Math.min(level, 20);
+  if (prog === 'pact') {
+    const [count, pactLevel] = PACT_SLOTS[idx] ?? [0, 0];
+    if (count === 0) return {};
+    return { [`spell${pactLevel}`]: { value: count, max: count, override: null } };
+  }
+  const table = prog === 'half' ? SPELL_SLOTS_HALF : SPELL_SLOTS_FULL;
+  const slots = table[idx] ?? [];
+  const result: Record<string, { value: number; max: number; override: null }> = {};
+  slots.forEach((count, i) => {
+    if (count > 0) result[`spell${i + 1}`] = { value: count, max: count, override: null };
+  });
+  return result;
 }
 
 // Class hit die map
@@ -126,7 +181,11 @@ router.post(
       const conMod = calcMod(abilityScores.con);
 
       const hitDie = HIT_DICE[data.class] ?? 8;
-      const hp = data.hpRoll !== undefined ? data.hpRoll : Math.max(1, hitDie + conMod);
+      const level = data.level ?? 1;
+      const avgPerLevel = Math.max(1, Math.ceil(hitDie / 2) + 1 + conMod);
+      const hp = data.hpRoll !== undefined
+        ? data.hpRoll
+        : Math.max(1, (hitDie + conMod) + (level - 1) * avgPerLevel);
       const ac = calcAC(dexMod, startingEquipment);
 
       // Build skills object: 1 = proficient, 0 = not
@@ -156,7 +215,7 @@ router.post(
         delete (entry as Record<string, unknown>)._id;
         resolvedItems.push({
           ...entry,
-          system: { ...(entry.system as Record<string, unknown>), levels: 1 },
+          system: { ...(entry.system as Record<string, unknown>), levels: level },
         });
       } else {
         resolvedItems.push({
@@ -165,7 +224,7 @@ router.post(
           system: {
             description: { value: '' },
             identifier: data.class.toLowerCase(),
-            levels: 1,
+            levels: level,
             hitDice: `d${HIT_DICE[data.class] ?? 8}`,
             hitDiceUsed: 0,
           },
@@ -207,7 +266,24 @@ router.post(
         }
       }
 
-      logInfo('Resolved embedded items', { count: resolvedItems.length, class: data.class });
+      // 4. Selected spells (cantrips + leveled spells)
+      const allSpells = [...(data.selectedCantrips ?? []), ...(data.selectedSpells ?? [])];
+      for (const spellName of allSpells) {
+        const spellItem = await foundrySyncService.findCompendiumItem('dnd5e.spells', spellName);
+        if (spellItem) {
+          const entry = { ...spellItem };
+          delete (entry as Record<string, unknown>)._id;
+          resolvedItems.push(entry);
+        } else {
+          resolvedItems.push({
+            name: spellName,
+            type: 'spell',
+            system: { description: { value: '' }, level: 0, school: 'evo' },
+          });
+        }
+      }
+
+      logInfo('Resolved embedded items', { count: resolvedItems.length, class: data.class, spells: allSpells.length });
 
       const actorData = {
         name: data.name,
@@ -232,12 +308,14 @@ router.post(
             race: data.race + (data.subrace ? ` (${data.subrace})` : ''),
             background: data.background,
             alignment: data.alignment,
+            level,
             biography: {
               value: buildBiography(data),
             },
           },
           skills,
           currency: { gp, sp: 0, cp: 0, ep: 0, pp: 0 },
+          spells: buildSpellSlots(data.class, level),
         },
       };
 
@@ -266,7 +344,7 @@ function buildBiography(data: CharacterData): string {
   const parts: string[] = [
     `<h2>${data.name}</h2>`,
     `<p><strong>Race:</strong> ${data.race}${data.subrace ? ` (${data.subrace})` : ''}</p>`,
-    `<p><strong>Class:</strong> ${data.class}${data.subclass ? ` — ${data.subclass}` : ''} (Level 1)</p>`,
+    `<p><strong>Class:</strong> ${data.class}${data.subclass ? ` — ${data.subclass}` : ''} (Level ${data.level ?? 1})</p>`,
     `<p><strong>Background:</strong> ${data.background}</p>`,
     `<p><strong>Alignment:</strong> ${data.alignment}</p>`,
   ];

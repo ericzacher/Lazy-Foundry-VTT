@@ -791,3 +791,190 @@ export function getBackgroundData(bgName: string): Background | undefined {
 export function getSkillName(key: string): string {
   return SKILL_MAP[key]?.name ?? key;
 }
+
+// ─── Level Features & Spellcasting ───────────────────────────────────────────
+
+/** ASI milestone levels per class (levels at which the class gets ASI or Feat) */
+export const ASI_LEVELS: Record<string, number[]> = {
+  Barbarian: [4, 8, 12, 16, 19],
+  Bard:      [4, 8, 12, 16, 19],
+  Cleric:    [4, 8, 12, 16, 19],
+  Druid:     [4, 8, 12, 16, 19],
+  Fighter:   [4, 6, 8, 12, 14, 16, 19],
+  Monk:      [4, 8, 10, 12, 16, 19],
+  Paladin:   [4, 8, 12, 16, 19],
+  Ranger:    [4, 8, 12, 16, 19],
+  Rogue:     [4, 8, 10, 12, 16, 18],
+  Sorcerer:  [4, 8, 12, 16, 19],
+  Warlock:   [4, 8, 12, 16, 19],
+  Wizard:    [4, 8, 12, 16, 19],
+};
+
+export function getAsiLevelsForClass(className: string, characterLevel: number): number[] {
+  return (ASI_LEVELS[className] ?? ASI_LEVELS['Barbarian']).filter(l => l <= characterLevel);
+}
+
+// ─── Spellcasting ─────────────────────────────────────────────────────────────
+
+export type SpellcastingProgression = 'full' | 'half' | 'pact' | 'none';
+
+export const SPELLCASTING_PROGRESSION: Record<string, SpellcastingProgression> = {
+  Bard: 'full', Cleric: 'full', Druid: 'full', Sorcerer: 'full', Wizard: 'full',
+  Paladin: 'half', Ranger: 'half',
+  Warlock: 'pact',
+};
+
+export const SPELLCASTING_CLASSES = new Set(Object.keys(SPELLCASTING_PROGRESSION));
+
+export function isSpellcaster(className: string): boolean {
+  return SPELLCASTING_CLASSES.has(className);
+}
+
+export function isPreparedCaster(className: string): boolean {
+  return ['Cleric', 'Druid', 'Paladin', 'Wizard'].includes(className);
+}
+
+/** Cantrips known per class per level (index = level - 1) */
+const CANTRIP_TABLE: Record<string, number[]> = {
+  Bard:     [2,2,2,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,4],
+  Cleric:   [3,3,3,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5],
+  Druid:    [2,2,2,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,4],
+  Sorcerer: [4,4,4,5,5,5,5,5,5,6,6,6,6,6,6,6,6,6,6,6],
+  Warlock:  [2,2,2,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,4],
+  Wizard:   [3,3,3,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5],
+};
+
+export function getCantripCount(className: string, level: number): number {
+  return CANTRIP_TABLE[className]?.[Math.min(level - 1, 19)] ?? 0;
+}
+
+/**
+ * Returns the number of spells a "known-caster" knows at the given level,
+ * or -1 for prepared casters (Cleric, Druid, Paladin, Wizard).
+ */
+const SPELLS_KNOWN_TABLE: Record<string, number[]> = {
+  Bard:     [4,5,6,7,8,9,10,11,12,14,15,15,16,18,19,19,20,22,22,22],
+  Ranger:   [0,2,3,3,4,4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9,10,10,11,11],
+  Sorcerer: [2,3,4,5,6,7, 8, 9,10,11,12,12,13,13,14,14,15,15,15,15],
+  Warlock:  [2,3,4,5,6,7, 8, 9,10,10,11,11,12,12,14,15,15,16,16,16],
+};
+
+export function getSpellsKnown(className: string, level: number): number {
+  if (isPreparedCaster(className)) return -1;
+  return SPELLS_KNOWN_TABLE[className]?.[Math.min(level - 1, 19)] ?? 0;
+}
+
+/** Highest spell level accessible to the class at the given character level */
+export function getMaxSpellLevel(className: string, level: number): number {
+  const prog = SPELLCASTING_PROGRESSION[className];
+  if (!prog || prog === 'none') return 0;
+  if (prog === 'full')  return Math.min(9, Math.ceil(level / 2));
+  if (prog === 'half')  return Math.min(5, Math.ceil(level / 4));
+  // pact (Warlock)
+  if (level < 3)  return 1;
+  if (level < 5)  return 2;
+  if (level < 7)  return 3;
+  if (level < 9)  return 4;
+  return 5;
+}
+
+// ─── Spell Slot Tables ────────────────────────────────────────────────────────
+// Index 0 unused; index = class level.
+
+/** Full-caster spell slots [level][spellRank 0-8] */
+export const SPELL_SLOTS_FULL: number[][] = [
+  [],
+  [2,0,0,0,0,0,0,0,0], [3,0,0,0,0,0,0,0,0], [4,2,0,0,0,0,0,0,0], [4,3,0,0,0,0,0,0,0],
+  [4,3,2,0,0,0,0,0,0], [4,3,3,0,0,0,0,0,0], [4,3,3,1,0,0,0,0,0], [4,3,3,2,0,0,0,0,0],
+  [4,3,3,3,1,0,0,0,0], [4,3,3,3,2,0,0,0,0], [4,3,3,3,2,1,0,0,0], [4,3,3,3,2,1,0,0,0],
+  [4,3,3,3,2,1,1,0,0], [4,3,3,3,2,1,1,0,0], [4,3,3,3,2,1,1,1,0], [4,3,3,3,2,1,1,1,0],
+  [4,3,3,3,2,1,1,1,1], [4,3,3,3,3,1,1,1,1], [4,3,3,3,3,2,1,1,1], [4,3,3,3,3,2,2,1,1],
+];
+
+/** Half-caster spell slots (Paladin, Ranger) */
+export const SPELL_SLOTS_HALF: number[][] = [
+  [],
+  [0,0,0,0,0,0,0,0,0], [2,0,0,0,0,0,0,0,0], [3,0,0,0,0,0,0,0,0], [3,0,0,0,0,0,0,0,0],
+  [4,2,0,0,0,0,0,0,0], [4,2,0,0,0,0,0,0,0], [4,3,0,0,0,0,0,0,0], [4,3,0,0,0,0,0,0,0],
+  [4,3,2,0,0,0,0,0,0], [4,3,2,0,0,0,0,0,0], [4,3,3,0,0,0,0,0,0], [4,3,3,0,0,0,0,0,0],
+  [4,3,3,1,0,0,0,0,0], [4,3,3,1,0,0,0,0,0], [4,3,3,2,0,0,0,0,0], [4,3,3,2,0,0,0,0,0],
+  [4,3,3,3,1,0,0,0,0], [4,3,3,3,1,0,0,0,0], [4,3,3,3,2,0,0,0,0], [4,3,3,3,2,0,0,0,0],
+];
+
+/** Pact magic: [slotCount, slotLevel] indexed by class level */
+export const SPELL_SLOTS_PACT: Array<[number, number]> = [
+  [0,0], [1,1],[2,1],[2,2],[2,2],[2,3],[2,3],[2,4],[2,4],[2,5],[2,5],
+  [3,5],[3,5],[3,5],[3,5],[3,5],[3,5],[4,5],[4,5],[4,5],[4,5],
+];
+
+/** Returns Foundry-compatible spell slot object for a caster class at given level */
+export function getSpellSlots(className: string, level: number): Record<string, { value: number; max: number }> {
+  const prog = SPELLCASTING_PROGRESSION[className];
+  if (!prog || prog === 'none') return {};
+  const idx = Math.min(level, 20);
+  if (prog === 'pact') {
+    const [count, pactLevel] = SPELL_SLOTS_PACT[idx] ?? [0, 0];
+    if (count === 0) return {};
+    return { [`spell${pactLevel}`]: { value: count, max: count } };
+  }
+  const table = prog === 'half' ? SPELL_SLOTS_HALF : SPELL_SLOTS_FULL;
+  const slots = table[idx] ?? [];
+  const result: Record<string, { value: number; max: number }> = {};
+  slots.forEach((count, i) => {
+    if (count > 0) result[`spell${i + 1}`] = { value: count, max: count };
+  });
+  return result;
+}
+
+// ─── PHB Feats ────────────────────────────────────────────────────────────────
+
+export interface Feat {
+  name: string;
+  description: string;
+  prerequisite?: string;
+}
+
+export const FEATS: Feat[] = [
+  { name: 'Alert', description: '+5 initiative; cannot be surprised while conscious; no advantage to attackers you cannot see.' },
+  { name: 'Athlete', description: '+1 STR or DEX; improved climbing and jumping; standing up costs only 5 ft of movement.' },
+  { name: 'Actor', description: '+1 CHA; advantage on Deception and Performance while disguised; mimic voices.' },
+  { name: 'Charger', description: 'Bonus action melee attack or shove after Dash.' },
+  { name: 'Crossbow Expert', description: 'Ignore loading property; no disadvantage at melee range; bonus hand crossbow attack.' },
+  { name: 'Defensive Duelist', description: 'Reaction: +proficiency bonus to AC vs one melee attack (requires finesse weapon).', prerequisite: 'DEX 13' },
+  { name: 'Dual Wielder', description: '+1 AC while wielding two weapons; dual wield non-light weapons; draw/stow two weapons.' },
+  { name: 'Dungeon Delver', description: 'Advantage on secret-door/trap Perception and Investigation; resistance to trap damage.' },
+  { name: 'Durable', description: '+1 CON; minimum hit dice recovery roll equals 2 × CON modifier.' },
+  { name: 'Elemental Adept', description: 'Spells of chosen damage type ignore resistance; treat 1s on damage dice as 2s.', prerequisite: 'Spellcasting or Pact Magic' },
+  { name: 'Grappler', description: '+1 STR; advantage on attack rolls against grappled creatures; can attempt to pin.', prerequisite: 'STR 13' },
+  { name: 'Great Weapon Master', description: '−5 to hit for +10 damage with heavy weapon; bonus attack after crit or kill.' },
+  { name: 'Healer', description: 'Stabilize grants 1 HP; healer\'s kit restores 1d6 + 4 + target\'s max HD.' },
+  { name: 'Heavily Armored', description: '+1 STR; gain proficiency with heavy armor.', prerequisite: 'Medium Armor proficiency' },
+  { name: 'Heavy Armor Master', description: '+1 STR; nonmagical B/P/S attacks deal 3 less damage while in heavy armor.', prerequisite: 'Heavy Armor proficiency' },
+  { name: 'Inspiring Leader', description: 'Spend 10 min to grant temp HP (level + CHA mod) to up to 6 creatures.', prerequisite: 'CHA 13' },
+  { name: 'Keen Mind', description: '+1 INT; always know compass direction and hours until sunrise/sunset; perfect recall for one month.' },
+  { name: 'Lightly Armored', description: '+1 STR or DEX; gain proficiency with light armor.' },
+  { name: 'Linguist', description: '+1 INT; learn 3 languages; create and decode ciphers.' },
+  { name: 'Lucky', description: '3 luck points per long rest: add extra d20 to attack, ability check, or saving throw; use after roll.' },
+  { name: 'Mage Slayer', description: 'Reaction attack when nearby creature casts; disadvantage on concentration saves vs your attacks.', prerequisite: '' },
+  { name: 'Magic Initiate', description: 'Learn 2 cantrips + 1 1st-level spell (once per long rest) from any one class list.' },
+  { name: 'Martial Adept', description: 'Learn 2 maneuvers from Battle Master; gain 1 superiority die (d6).', prerequisite: '' },
+  { name: 'Medium Armor Master', description: '+1 STR or DEX; no stealth disadvantage in medium armor; DEX bonus to AC up to +3.', prerequisite: 'Medium Armor proficiency' },
+  { name: 'Mobile', description: '+10 ft speed; Dash ignores difficult terrain; no opportunity attacks from targets you attack.' },
+  { name: 'Moderately Armored', description: '+1 STR or DEX; gain proficiency with medium armor and shields.', prerequisite: 'Light Armor proficiency' },
+  { name: 'Mounted Combatant', description: 'Advantage on melee attacks against smaller unmounted targets; redirect attacks to mount.' },
+  { name: 'Observant', description: '+1 INT or WIS; +5 to passive Perception and Investigation; lip-reading.' },
+  { name: 'Polearm Master', description: 'Bonus action butt-end d4 attack; opportunity attacks when creatures enter your reach.' },
+  { name: 'Resilient', description: '+1 to chosen ability score; gain saving throw proficiency for that ability.' },
+  { name: 'Ritual Caster', description: 'Learn 2 ritual spells and a ritual book; can copy additional ritual spells.', prerequisite: 'INT or WIS 13' },
+  { name: 'Savage Attacker', description: 'Once per turn, reroll weapon damage dice and use the higher result.' },
+  { name: 'Sentinel', description: 'Opportunity attacks reduce speed to 0; Disengage doesn\'t prevent OA from you; reaction attack vs nearby attacker.' },
+  { name: 'Sharpshooter', description: '−5 to hit for +10 damage with ranged weapon; ignore half/three-quarters cover; no disadvantage at long range.' },
+  { name: 'Shield Master', description: 'Bonus action shove after Attack action; +2 to DEX saves if shielded; use reaction to negate DEX saves.' },
+  { name: 'Skilled', description: 'Gain proficiency in any combination of 3 skills or tools.' },
+  { name: 'Skulker', description: '+1 DEX; hide in dim light; missing an attack while hidden doesn\'t reveal you.', prerequisite: 'DEX 13' },
+  { name: 'Spell Sniper', description: 'Double range of attack-roll spells; ignore half and three-quarters cover; learn 1 attack-roll cantrip.', prerequisite: 'Spellcasting or Pact Magic' },
+  { name: 'Tavern Brawler', description: '+1 STR or CON; proficiency with improvised weapons and unarmed strikes (d4); bonus grapple after unarmed hit.' },
+  { name: 'Tough', description: 'HP increases by 2 × level; gain 2 additional HP per level thereafter.' },
+  { name: 'War Caster', description: 'Advantage on concentration saves; somatic components with hands full; cast spell as opportunity attack.', prerequisite: 'Spellcasting or Pact Magic' },
+  { name: 'Weapon Master', description: '+1 STR or DEX; gain proficiency with 4 weapons of your choice.' },
+];
