@@ -61,6 +61,7 @@ export interface FoundrySceneData {
   walls: FoundryWall[];
   lights: FoundryLight[];
   padding: number;
+  ownership?: Record<string, number>;
 }
 
 // ============================================================
@@ -885,6 +886,7 @@ function buildFoundryScene(
     walls,
     lights,
     padding: 0,
+    ownership: { default: 1 },
   };
 }
 

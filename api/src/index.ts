@@ -59,7 +59,10 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
-    
+
+    // Allow Cloudflare Tunnel URLs for remote play
+    if (origin.endsWith('.trycloudflare.com')) return callback(null, true);
+
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {

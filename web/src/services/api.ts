@@ -1,6 +1,6 @@
 import type { AuthResponse, Campaign, Session, User, NPC, SessionResult, MapData, TokenData, CampaignSummary, TimelineEvent, NPCHistoryEntry, NPCStatus, CharacterData, StoreData, RestoreResult, CampaignPlayer, JoinInfo, PlayerPortalData, SessionZeroData, PartyHooks } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 class ApiService {
   private token: string | null = null;
