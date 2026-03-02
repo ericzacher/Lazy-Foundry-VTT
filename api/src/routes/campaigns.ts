@@ -861,6 +861,32 @@ router.post(
         where: { campaignId: campaign.id, status: PlayerStatus.READY },
       });
 
+      // Ensure all players have Foundry VTT user profiles and correct actor ownership
+      for (const player of players) {
+        if (!player.foundryUserId) {
+          try {
+            const result = await foundrySyncService.createFoundryUser(player.playerName);
+            if (result.success && result.data) {
+              player.foundryUserId = result.data._id;
+              await AppDataSource.getRepository(CampaignPlayer).save(player);
+              console.log(`[Session Zero] Created Foundry user for ${player.playerName}: ${result.data._id}`);
+            }
+          } catch (err) {
+            console.warn(`[Session Zero] Failed to create Foundry user for ${player.playerName}:`, err);
+          }
+        }
+
+        if (player.foundryActorId && player.foundryUserId) {
+          try {
+            const ownership: Record<string, number> = { default: 0, [player.foundryUserId]: 3 };
+            await foundrySyncService.updateActor(player.foundryActorId, { ownership });
+            await foundrySyncService.updateFoundryUser(player.foundryUserId, { character: player.foundryActorId });
+          } catch (err) {
+            console.warn(`[Session Zero] Failed to fix actor ownership for ${player.playerName}:`, err);
+          }
+        }
+      }
+
       const partyDesc = players.map(p => {
         const cd = p.characterData as Record<string, unknown>;
         return `${p.characterName || p.playerName}: ${cd?.race || ''} ${cd?.class || ''} Level ${campaign.partyLevel || 1}`;

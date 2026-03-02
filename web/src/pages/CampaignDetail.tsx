@@ -869,11 +869,11 @@ export function CampaignDetail() {
               partySize={campaign?.playerCount || 4}
               partyLevel={campaign?.partyLevel || 3}
               sessions={sessions}
-              onGenerate={async (description, mapType, encounterConfig, sessionId, mapSize) => {
+              onGenerate={async (description, mapType, encounterConfig, sessionId, mapSize, fogOfWar) => {
                 setGeneratingMap(true);
                 setError('');
                 try {
-                  const { map } = await api.generateMap(id!, description, mapType, sessionId, encounterConfig, mapSize);
+                  const { map } = await api.generateMap(id!, description, mapType, sessionId, encounterConfig, mapSize, fogOfWar);
                   setMaps([map, ...maps]);
                   // If linked to a session, reload sessions to show updated mapIds
                   if (sessionId) {
@@ -988,6 +988,11 @@ export function CampaignDetail() {
                     <span className="bg-gray-700 px-2 py-1 rounded text-green-400">
                       ✅ Foundry VTT Ready
                     </span>
+                    {map.fogOfWar !== false && (
+                      <span className="bg-gray-700 px-2 py-1 rounded text-gray-300">
+                        🌫 Fog
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -1527,7 +1532,7 @@ function MapGenerationForm({
 }: {
   campaignId: string;
   generating: boolean;
-  onGenerate: (description: string, mapType: string, encounterConfig?: EncounterConfig, sessionId?: string, mapSize?: 'small' | 'medium' | 'large') => Promise<void>;
+  onGenerate: (description: string, mapType: string, encounterConfig?: EncounterConfig, sessionId?: string, mapSize?: 'small' | 'medium' | 'large', fogOfWar?: boolean) => Promise<void>;
   partySize?: number;
   partyLevel?: number;
   sessions?: Array<{ id: string; title: string }>;
@@ -1542,6 +1547,7 @@ function MapGenerationForm({
   const [customPartyLevel, setCustomPartyLevel] = useState(partyLevel);
   const [monsterType, setMonsterType] = useState('');
   const [monstersPerEncounter, setMonstersPerEncounter] = useState(0);
+  const [fogOfWar, setFogOfWar] = useState(true);
   const [showCRCalculator, setShowCRCalculator] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string>('');
 
@@ -1560,7 +1566,7 @@ function MapGenerationForm({
         }
       : undefined;
 
-    await onGenerate(description.trim(), mapType, encounterConfig, selectedSessionId || undefined, mapSize);
+    await onGenerate(description.trim(), mapType, encounterConfig, selectedSessionId || undefined, mapSize, fogOfWar);
     setDescription('');
     setIncludeEncounters(false);
     setSelectedSessionId('');
@@ -1749,6 +1755,29 @@ function MapGenerationForm({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Fog of War */}
+          <div className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
+            <input
+              type="checkbox"
+              id="fogOfWar"
+              checked={fogOfWar}
+              onChange={(e) => setFogOfWar(e.target.checked)}
+              className="w-4 h-4 rounded accent-indigo-500"
+            />
+            <label htmlFor="fogOfWar" className="flex-1 cursor-pointer">
+              <div className="text-sm text-white font-medium">Fog of War</div>
+              <div className="text-xs text-gray-400">
+                Players explore gradually — areas outside token vision stay hidden.
+                Uncheck for fully-visible handout maps (towns, overviews).
+              </div>
+            </label>
+            <span className={`text-xs px-2 py-0.5 rounded ${
+              fogOfWar ? 'bg-indigo-900/60 text-indigo-300' : 'bg-gray-700 text-gray-400'
+            }`}>
+              {fogOfWar ? 'On' : 'Off'}
+            </span>
           </div>
 
           <button

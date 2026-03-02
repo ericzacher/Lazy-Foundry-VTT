@@ -1,4 +1,4 @@
-.PHONY: help build up down restart clean logs logs-api logs-web logs-db logs-foundry shell-api shell-db ps health backup restore migrate-up migrate-down install dev prod stop start rebuild
+.PHONY: help build up down restart clean logs logs-api logs-web logs-db logs-foundry shell-api shell-db ps health backup restore migrate-up migrate-down install dev prod stop start rebuild tunnel tunnel-web tunnel-foundry tunnel-stop
 
 # Default target
 .DEFAULT_GOAL := help
@@ -258,6 +258,46 @@ prune: ## Remove all unused Docker resources (images, containers, volumes)
 	@echo "Press Ctrl+C to cancel, or Enter to continue..."
 	@read confirm
 	$(DOCKER) system prune -af --volumes
+
+##@ Tunneling
+
+tunnel: ## Start public tunnels for web (3000) and Foundry (30000) — requires cloudflared
+	@which cloudflared > /dev/null 2>&1 || { echo "$(RED)cloudflared not found. Install with: make install-cloudflared$(NC)"; exit 1; }
+	@echo "$(GREEN)Starting tunnels for ports 3000 and 30000...$(NC)"
+	@echo "$(YELLOW)Player URLs will appear below once connected$(NC)"
+	@echo "$(YELLOW)Press Ctrl+C to stop both tunnels$(NC)"
+	@echo ""
+	@( cloudflared tunnel --url http://localhost:3000 2>&1 | \
+		awk '/trycloudflare/{printf "\n\033[0;32m  [WEB    PORT 3000]  "; match($$0,/https:\/\/[^ |]*/); print substr($$0,RSTART,RLENGTH) "\033[0m\n"; fflush()} \
+		     /Registered tunnel/{print "\033[0;32m  [WEB    PORT 3000]  connected\033[0m"; fflush()} \
+		     /ERR/{print "\033[0;31m  [WEB    PORT 3000]  ERROR: " $$0 "\033[0m"; fflush()}' ) & \
+	( cloudflared tunnel --url http://localhost:30000 2>&1 | \
+		awk '/trycloudflare/{printf "\n\033[0;33m  [FOUNDRY PORT 30000] "; match($$0,/https:\/\/[^ |]*/); print substr($$0,RSTART,RLENGTH) "\033[0m\n"; fflush()} \
+		     /Registered tunnel/{print "\033[0;33m  [FOUNDRY PORT 30000] connected\033[0m"; fflush()} \
+		     /ERR/{print "\033[0;31m  [FOUNDRY PORT 30000] ERROR: " $$0 "\033[0m"; fflush()}' ) & \
+	wait
+
+tunnel-web: ## Start public tunnel for web UI only (port 3000)
+	@which cloudflared > /dev/null 2>&1 || { echo "$(RED)cloudflared not found. Install with: make install-cloudflared$(NC)"; exit 1; }
+	@echo "$(GREEN)Starting tunnel for Web UI (port 3000)...$(NC)"
+	@cloudflared tunnel --url http://localhost:3000
+
+tunnel-foundry: ## Start public tunnel for Foundry VTT only (port 30000)
+	@which cloudflared > /dev/null 2>&1 || { echo "$(RED)cloudflared not found. Install with: make install-cloudflared$(NC)"; exit 1; }
+	@echo "$(GREEN)Starting tunnel for Foundry VTT (port 30000)...$(NC)"
+	@cloudflared tunnel --url http://localhost:30000
+
+tunnel-stop: ## Stop all running cloudflared tunnel processes
+	@echo "$(YELLOW)Stopping all cloudflared tunnels...$(NC)"
+	@pkill -f cloudflared || echo "$(YELLOW)No tunnels running$(NC)"
+	@echo "$(GREEN)Tunnels stopped$(NC)"
+
+install-cloudflared: ## Install cloudflared (required for tunneling)
+	@echo "$(GREEN)Installing cloudflared...$(NC)"
+	@wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -O /tmp/cloudflared.deb
+	@sudo dpkg -i /tmp/cloudflared.deb
+	@rm /tmp/cloudflared.deb
+	@echo "$(GREEN)cloudflared installed! Run 'make tunnel' to start tunnels.$(NC)"
 
 ##@ Quick Commands
 

@@ -283,6 +283,7 @@ router.get(
           setting: campaign.setting,
           description: campaign.description,
           worldLore: campaign.worldLore,
+          partyLevel: campaign.partyLevel,
         },
         player,
         sessions: sessionResults,

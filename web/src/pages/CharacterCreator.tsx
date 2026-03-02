@@ -6,9 +6,12 @@ import {
   ABILITY_KEYS, ABILITY_LABELS,
   calcModifier, modString,
   getRaceData, getClassData, getBackgroundData, getSkillName,
+  isSpellcaster, isPreparedCaster, getCantripCount, getSpellsKnown, getMaxSpellLevel,
+  getSpellSlots, getAsiLevelsForClass, FEATS,
   type AbilityKey, type SuggestedArray,
 } from '../data/dnd5e';
-import type { CharacterData, AbilityScores } from '../types';
+import { getCantripsForClass, getSpellsByLevel, type SpellEntry } from '../data/spells';
+import type { CharacterData, AbilityScores, AsiChoice } from '../types';
 import { PlayerStatus } from '../types';
 import { api } from '../services/api';
 
@@ -34,17 +37,19 @@ const DEFAULT_CHARACTER: CharacterData = {
   scoreMethod: 'standard',
   hpRoll: undefined,
   foundryUserId: undefined,
+  level: 1,
+  selectedCantrips: [],
+  selectedSpells: [],
+  asiChoices: [],
 };
 
-const STEPS = [
-  'Race',
-  'Class',
-  'Background',
-  'Ability Scores',
-  'Skills',
-  'Equipment',
-  'Details & Review',
-];
+function getActiveSteps(className: string, level: number): string[] {
+  const steps = ['Race', 'Class', 'Background', 'Ability Scores', 'Skills', 'Equipment'];
+  if (className && isSpellcaster(className)) steps.push('Spells');
+  if (className && getAsiLevelsForClass(className, level).length > 0) steps.push('Level Features');
+  steps.push('Details & Review');
+  return steps;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -72,31 +77,28 @@ function applyRacialBonuses(base: AbilityScores, race: string, subrace?: string)
   return result;
 }
 
-function calcHP(className: string, conMod: number): number {
-  const classData = getClassData(className);
-  const hitDie = classData?.hitDie ?? 8;
-  return Math.max(1, hitDie + conMod);
-}
 
-function calcProfBonus(): number { return 2; }
+function calcProfBonus(level: number): number {
+  return Math.floor((level - 1) / 4) + 2;
+}
 
 // ─── Step Components ───────────────────────────────────────────────────────
 
-function ProgressBar({ step }: { step: number }) {
+function ProgressBar({ step, steps }: { step: number; steps: string[] }) {
   return (
     <div className="mb-8">
       <div className="flex justify-between mb-2">
-        <span className="text-sm text-gray-400">Step {step} of {STEPS.length}</span>
-        <span className="text-sm font-medium text-indigo-400">{STEPS[step - 1]}</span>
+        <span className="text-sm text-gray-400">Step {step} of {steps.length}</span>
+        <span className="text-sm font-medium text-indigo-400">{steps[step - 1]}</span>
       </div>
       <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
         <div
           className="h-full bg-indigo-600 transition-all duration-300"
-          style={{ width: `${(step / STEPS.length) * 100}%` }}
+          style={{ width: `${(step / steps.length) * 100}%` }}
         />
       </div>
       <div className="flex justify-between mt-2">
-        {STEPS.map((s, i) => (
+        {steps.map((s, i) => (
           <span
             key={s}
             className={`text-xs ${i + 1 === step ? 'text-indigo-400 font-semibold' : i + 1 < step ? 'text-gray-500' : 'text-gray-600'}`}
@@ -287,6 +289,55 @@ function StepClass({
           </div>
         </div>
       )}
+
+      {/* Level Selector */}
+      <div className="mt-6 p-4 bg-gray-800 rounded-lg border border-gray-700">
+        <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">Character Level</div>
+        <div className="flex items-center gap-3 mb-3">
+          <button
+            onClick={() => setCharacter(c => {
+              const newLevel = Math.max(1, (c.level ?? 1) - 1);
+              const newAsiMilestones = getAsiLevelsForClass(c.class, newLevel);
+              return {
+                ...c,
+                level: newLevel,
+                asiChoices: (c.asiChoices ?? []).slice(0, newAsiMilestones.length),
+              };
+            })}
+            className="w-8 h-8 rounded bg-gray-700 text-white hover:bg-gray-600 font-bold text-lg"
+          >−</button>
+          <span className="text-2xl font-bold text-white w-8 text-center">{character.level ?? 1}</span>
+          <button
+            onClick={() => setCharacter(c => ({ ...c, level: Math.min(20, (c.level ?? 1) + 1) }))}
+            className="w-8 h-8 rounded bg-gray-700 text-white hover:bg-gray-600 font-bold text-lg"
+          >+</button>
+          <span className="text-sm text-gray-500 ml-2">
+            Proficiency Bonus: +{Math.ceil((character.level ?? 1) / 4) + 1}
+          </span>
+        </div>
+        <div className="flex gap-1 flex-wrap">
+          {[1, 3, 5, 8, 10, 12, 15, 17, 20].map(lvl => (
+            <button
+              key={lvl}
+              onClick={() => setCharacter(c => {
+                const newAsiMilestones = getAsiLevelsForClass(c.class, lvl);
+                return {
+                  ...c,
+                  level: lvl,
+                  asiChoices: (c.asiChoices ?? []).slice(0, newAsiMilestones.length),
+                };
+              })}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                (character.level ?? 1) === lvl
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-700 text-gray-400 hover:bg-gray-600 hover:text-white'
+              }`}
+            >
+              {lvl}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -661,7 +712,7 @@ function StepSkills({
   };
 
   const finalScores = applyRacialBonuses(character.abilityScores, character.race, character.subrace);
-  const profBonus = calcProfBonus();
+  const profBonus = calcProfBonus(character.level ?? 1);
 
   return (
     <div>
@@ -855,22 +906,31 @@ function StepDetails({
   const conMod = calcModifier(finalScores.con);
   const dexMod = calcModifier(finalScores.dex);
   const hitDie = getClassData(character.class)?.hitDie ?? 8;
-  const maxHp = Math.max(1, hitDie + conMod);
+  const charLevel = character.level ?? 1;
+  const avgPerLevel = Math.max(1, Math.ceil(hitDie / 2) + 1 + conMod);
+  const maxHp = Math.max(charLevel, (hitDie + conMod) + (charLevel - 1) * avgPerLevel);
   const displayHp = character.hpRoll !== undefined ? character.hpRoll : maxHp;
-  const profBonus = calcProfBonus();
+  const profBonus = calcProfBonus(charLevel);
 
   const handleRollHp = () => {
     if (rolling || !character.class) return;
     setRolling(true);
-    const roll = Math.floor(Math.random() * hitDie) + 1;
-    const finalHp = Math.max(1, roll + conMod);
+    // Level 1: always max hit die + CON
+    let total = hitDie + conMod;
+    // Levels 2+: roll each level separately
+    let lastRoll = hitDie;
+    for (let l = 2; l <= charLevel; l++) {
+      lastRoll = Math.floor(Math.random() * hitDie) + 1;
+      total += Math.max(1, lastRoll + conMod);
+    }
+    const finalHp = Math.max(charLevel, total);
     let ticks = 0;
     const interval = setInterval(() => {
       setAnimDie(Math.floor(Math.random() * hitDie) + 1);
       ticks++;
       if (ticks >= 10) {
         clearInterval(interval);
-        setAnimDie(roll);
+        setAnimDie(lastRoll);
         setCharacter(c => ({ ...c, hpRoll: finalHp }));
         setRolling(false);
       }
@@ -1093,7 +1153,7 @@ function StepDetails({
             <div className="text-xs text-gray-500">Speed</div>
           </div>
           <div className="bg-gray-900 rounded-lg p-2 text-center">
-            <div className="text-lg font-bold text-yellow-400">1</div>
+            <div className="text-lg font-bold text-yellow-400">{charLevel}</div>
             <div className="text-xs text-gray-500">Level</div>
           </div>
         </div>
@@ -1102,22 +1162,29 @@ function StepDetails({
         <div className="bg-gray-900 rounded-lg p-3 border border-gray-800 mb-4">
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm">
-              <span className="text-gray-500">d{hitDie}</span>
-              {rolling ? (
-                <span className="text-red-400 font-bold mx-1 inline-block w-6 text-center animate-pulse">{animDie}</span>
-              ) : character.hpRoll !== undefined ? (
-                <span className="text-red-400 font-bold mx-1">{animDie}</span>
+              {charLevel === 1 ? (
+                <>
+                  <span className="text-gray-500">d{hitDie}</span>
+                  {rolling ? (
+                    <span className="text-red-400 font-bold mx-1 inline-block w-6 text-center animate-pulse">{animDie}</span>
+                  ) : (
+                    <span className="text-gray-400 mx-1">{character.hpRoll !== undefined ? animDie : hitDie}</span>
+                  )}
+                  <span className="text-gray-600">+</span>
+                  <span className={`mx-1 ${conMod >= 0 ? 'text-green-400' : 'text-red-400'}`}>{conMod >= 0 ? '+' : ''}{conMod}</span>
+                  <span className="text-gray-600 mr-1">CON</span>
+                </>
               ) : (
-                <span className="text-gray-400 mx-1">{hitDie}</span>
+                <>
+                  <span className="text-gray-500">Lv{charLevel} {character.class || '—'}</span>
+                  <span className="text-gray-600 mx-1">d{hitDie}</span>
+                  {rolling && <span className="text-red-400 font-bold mx-1 animate-pulse">{animDie}</span>}
+                </>
               )}
-              <span className="text-gray-600">+</span>
-              <span className={`mx-1 ${conMod >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {conMod >= 0 ? '+' : ''}{conMod}
-              </span>
-              <span className="text-gray-600">CON =</span>
+              <span className="text-gray-600">=</span>
               <span className="text-red-400 font-bold ml-1">{displayHp} HP</span>
               <span className="ml-2 text-xs text-gray-600">
-                {character.hpRoll !== undefined ? '(rolled)' : '(max)'}
+                {character.hpRoll !== undefined ? '(rolled)' : '(max avg)'}
               </span>
             </div>
             <div className="flex gap-2 shrink-0">
@@ -1399,6 +1466,419 @@ function parseImportedCharacter(raw: Record<string, unknown>): CharacterData | n
   return null;
 }
 
+// ─── Step: Spells ─────────────────────────────────────────────────────────────
+
+// Floating spell tooltip shown on card hover
+function SpellTooltip({ spell, x, y }: { spell: SpellEntry; x: number; y: number }) {
+  // Keep tooltip inside viewport
+  const LEFT_OFFSET = 16;
+  const TOP_OFFSET = -8;
+  const TOOLTIP_WIDTH = 260;
+  const safeX = x + LEFT_OFFSET + TOOLTIP_WIDTH > window.innerWidth
+    ? x - TOOLTIP_WIDTH - LEFT_OFFSET
+    : x + LEFT_OFFSET;
+  const safeY = Math.max(8, y + TOP_OFFSET);
+
+  const ordinal = (n: number) => n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
+
+  return (
+    <div
+      className="fixed z-50 pointer-events-none"
+      style={{ left: safeX, top: safeY, width: TOOLTIP_WIDTH }}
+    >
+      <div className="bg-gray-900 border border-indigo-700 rounded-lg shadow-xl p-3">
+        <div className="flex items-start justify-between gap-2 mb-1.5">
+          <span className="font-bold text-white text-sm leading-tight">{spell.name}</span>
+          <span className="text-xs text-indigo-300 whitespace-nowrap shrink-0">
+            {spell.level === 0 ? 'Cantrip' : `${ordinal(spell.level)}-level`}
+          </span>
+        </div>
+        <div className="text-xs text-gray-400 mb-2">{spell.school}</div>
+        <div className="flex gap-1 flex-wrap mb-2">
+          {spell.concentration && (
+            <span className="text-xs bg-amber-900/60 text-amber-300 px-1.5 py-0.5 rounded">Concentration</span>
+          )}
+          {spell.ritual && (
+            <span className="text-xs bg-teal-900/60 text-teal-300 px-1.5 py-0.5 rounded">Ritual</span>
+          )}
+        </div>
+        {spell.description && (
+          <p className="text-xs text-gray-300 leading-relaxed">{spell.description}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const SLOT_ORDINALS = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th'];
+
+function StepSpells({
+  character, setCharacter,
+}: {
+  character: CharacterData;
+  setCharacter: React.Dispatch<React.SetStateAction<CharacterData>>;
+}) {
+  const [spellLevelFilter, setSpellLevelFilter] = useState(1);
+  const [search, setSearch] = useState('');
+  const [hoveredSpell, setHoveredSpell] = useState<SpellEntry | null>(null);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+
+  const level = character.level ?? 1;
+  const cantripCount = getCantripCount(character.class, level);
+  const maxSpellLevel = getMaxSpellLevel(character.class, level);
+  const spellsKnown = getSpellsKnown(character.class, level);
+  const prepared = isPreparedCaster(character.class);
+  const selectedCantrips = character.selectedCantrips ?? [];
+  const selectedSpells = character.selectedSpells ?? [];
+
+  // Spell slots available at each level
+  const slotTable = getSpellSlots(character.class, level);
+
+  const toggleCantrip = (name: string) => {
+    setCharacter(c => {
+      const cur = c.selectedCantrips ?? [];
+      if (cur.includes(name)) return { ...c, selectedCantrips: cur.filter(x => x !== name) };
+      if (cur.length >= cantripCount) return c;
+      return { ...c, selectedCantrips: [...cur, name] };
+    });
+  };
+
+  const toggleSpell = (name: string) => {
+    setCharacter(c => {
+      const cur = c.selectedSpells ?? [];
+      if (cur.includes(name)) return { ...c, selectedSpells: cur.filter(x => x !== name) };
+      if (!prepared && spellsKnown >= 0 && cur.length >= spellsKnown) return c;
+      return { ...c, selectedSpells: [...cur, name] };
+    });
+  };
+
+  const handleMouseEnter = (spell: SpellEntry, e: React.MouseEvent) => {
+    setHoveredSpell(spell);
+    setTooltipPos({ x: e.clientX, y: e.clientY });
+  };
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (hoveredSpell) setTooltipPos({ x: e.clientX, y: e.clientY });
+  };
+  const handleMouseLeave = () => setHoveredSpell(null);
+
+  const allCantrips = getCantripsForClass(character.class).filter(s =>
+    s.name.toLowerCase().includes(search.toLowerCase())
+  );
+  const leveledSpells = getSpellsByLevel(character.class, spellLevelFilter).filter(s =>
+    s.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  // Slots available at currently-viewed spell level
+  const currentLevelSlots = slotTable[`spell${spellLevelFilter}`]?.max ?? 0;
+
+  return (
+    <div onMouseMove={handleMouseMove}>
+      {hoveredSpell && <SpellTooltip spell={hoveredSpell} x={tooltipPos.x} y={tooltipPos.y} />}
+
+      <h2 className="text-2xl font-bold mb-1">Choose Your Spells</h2>
+      <p className="text-gray-400 mb-4">
+        {character.class} — Level {level}.{' '}
+        {prepared
+          ? 'You prepare spells after a long rest (selection here is optional for reference).'
+          : spellsKnown > 0 ? `Choose ${spellsKnown} spell${spellsKnown !== 1 ? 's' : ''} known.` : ''}
+      </p>
+
+      {/* Spell slot summary bar */}
+      {maxSpellLevel > 0 && Object.keys(slotTable).length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+          <span className="text-xs text-gray-500 mr-1 self-center">Slots:</span>
+          {Object.entries(slotTable).map(([key, { max }]) => {
+            const slotLvl = parseInt(key.replace('spell', ''), 10);
+            return (
+              <span
+                key={key}
+                className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded flex items-center gap-1"
+              >
+                <span className="text-gray-500">{SLOT_ORDINALS[slotLvl]}</span>
+                <span className="text-indigo-300 font-semibold">{max}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Search */}
+      <input
+        type="text"
+        placeholder="Search spells..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm mb-4 focus:outline-none focus:border-indigo-500"
+      />
+
+      {/* Cantrips */}
+      {cantripCount > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Cantrips</h3>
+            <span className={`text-xs px-2 py-0.5 rounded ${selectedCantrips.length === cantripCount ? 'bg-green-800 text-green-200' : 'bg-gray-700 text-gray-400'}`}>
+              {selectedCantrips.length} / {cantripCount}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {allCantrips.map(spell => {
+              const sel = selectedCantrips.includes(spell.name);
+              const disabled = !sel && selectedCantrips.length >= cantripCount;
+              return (
+                <button
+                  key={spell.name}
+                  onClick={() => !disabled && toggleCantrip(spell.name)}
+                  onMouseEnter={e => handleMouseEnter(spell, e)}
+                  onMouseLeave={handleMouseLeave}
+                  className={`p-2 rounded-lg border text-left text-xs transition-all ${
+                    sel
+                      ? 'border-indigo-500 bg-indigo-900/40 text-white'
+                      : disabled
+                        ? 'border-gray-700 bg-gray-800 text-gray-600 cursor-not-allowed'
+                        : 'border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-500'
+                  }`}
+                >
+                  <div className="font-semibold">{spell.name}</div>
+                  <div className="text-gray-500">{spell.school}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Leveled Spells */}
+      {maxSpellLevel > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
+              Leveled Spells
+            </h3>
+            {!prepared && spellsKnown > 0 && (
+              <span className={`text-xs px-2 py-0.5 rounded ${selectedSpells.length === spellsKnown ? 'bg-green-800 text-green-200' : 'bg-gray-700 text-gray-400'}`}>
+                {selectedSpells.length} / {spellsKnown} known
+              </span>
+            )}
+          </div>
+
+          {/* Spell level tabs with slot counts */}
+          <div className="flex gap-1 mb-3 flex-wrap">
+            {Array.from({ length: maxSpellLevel }, (_, i) => i + 1).map(lvl => {
+              const slots = slotTable[`spell${lvl}`]?.max ?? 0;
+              const active = spellLevelFilter === lvl;
+              return (
+                <button
+                  key={lvl}
+                  onClick={() => setSpellLevelFilter(lvl)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                    active ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                  }`}
+                >
+                  <span>{SLOT_ORDINALS[lvl]}</span>
+                  {slots > 0 && (
+                    <span className={`text-xs rounded px-1 ${active ? 'bg-indigo-500/60 text-indigo-100' : 'bg-gray-600 text-gray-300'}`}>
+                      {slots}◇
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Info line for current level */}
+          {currentLevelSlots > 0 && (
+            <p className="text-xs text-gray-500 mb-2">
+              You have <span className="text-indigo-400 font-semibold">{currentLevelSlots}</span> {SLOT_ORDINALS[spellLevelFilter]}-level slot{currentLevelSlots !== 1 ? 's' : ''}.
+              {!prepared && spellsKnown > 0 && ` (${spellsKnown - selectedSpells.length} spell${spellsKnown - selectedSpells.length !== 1 ? 's' : ''} left to pick)`}
+            </p>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {leveledSpells.map(spell => {
+              const sel = selectedSpells.includes(spell.name);
+              const disabled = !sel && !prepared && spellsKnown > 0 && selectedSpells.length >= spellsKnown;
+              return (
+                <button
+                  key={spell.name}
+                  onClick={() => !disabled && toggleSpell(spell.name)}
+                  onMouseEnter={e => handleMouseEnter(spell, e)}
+                  onMouseLeave={handleMouseLeave}
+                  className={`p-2 rounded-lg border text-left text-xs transition-all ${
+                    sel
+                      ? 'border-indigo-500 bg-indigo-900/40 text-white'
+                      : disabled
+                        ? 'border-gray-700 bg-gray-800 text-gray-600 cursor-not-allowed'
+                        : 'border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-500'
+                  }`}
+                >
+                  <div className="font-semibold">{spell.name}</div>
+                  <div className="text-gray-500">
+                    {spell.school}
+                    {spell.concentration ? ' · Conc' : ''}
+                    {spell.ritual ? ' · Ritual' : ''}
+                  </div>
+                </button>
+              );
+            })}
+            {leveledSpells.length === 0 && (
+              <div className="col-span-3 text-sm text-gray-500 py-4 text-center">No spells found.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Step: Level Features (ASI / Feats) ───────────────────────────────────────
+
+function AsiOrFeatCard({
+  milestoneLevel, choice, onChoice,
+}: {
+  milestoneLevel: number;
+  choice: AsiChoice | undefined;
+  onChoice: (c: AsiChoice) => void;
+}) {
+  const [tab, setTab] = useState<'asi' | 'feat'>(choice?.type ?? 'asi');
+  const [featSearch, setFeatSearch] = useState('');
+
+  const improvements = choice?.type === 'asi' ? (choice.improvements ?? {}) : {};
+  const total = Object.values(improvements).reduce((a, b) => a + (b ?? 0), 0);
+
+  const ABILITY_DISPLAY: Record<string, string> = {
+    str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA',
+  };
+
+  const adjustAsi = (key: string, delta: number) => {
+    const current = (improvements as Record<string, number>)[key] ?? 0;
+    const newVal = Math.max(0, Math.min(2, current + delta));
+    const newImps = { ...improvements, [key]: newVal } as Partial<Record<string, number>>;
+    if (newVal === 0) delete newImps[key];
+    const newTotal = Object.values(newImps).reduce((a: number, b) => a + (b ?? 0), 0);
+    if (newTotal > 2) return;
+    onChoice({ asiLevel: milestoneLevel, type: 'asi', improvements: newImps as AsiChoice['improvements'] });
+  };
+
+  const filteredFeats = FEATS.filter(f =>
+    f.name.toLowerCase().includes(featSearch.toLowerCase())
+  );
+
+  return (
+    <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm font-semibold text-gray-300">
+          ASI / Feat at Level {milestoneLevel}
+        </div>
+        <div className="flex gap-1">
+          <button
+            onClick={() => { setTab('asi'); onChoice({ asiLevel: milestoneLevel, type: 'asi', improvements: {} }); }}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${tab === 'asi' ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}
+          >ASI</button>
+          <button
+            onClick={() => { setTab('feat'); onChoice({ asiLevel: milestoneLevel, type: 'feat', feat: undefined }); }}
+            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${tab === 'feat' ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'}`}
+          >Feat</button>
+        </div>
+      </div>
+
+      {tab === 'asi' && (
+        <div>
+          <div className="text-xs text-gray-500 mb-3">
+            Distribute +2 across any abilities (or +1/+1 to two different abilities). Points remaining: {2 - total}
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {Object.entries(ABILITY_DISPLAY).map(([key, label]) => {
+              const val = (improvements as Record<string, number>)[key] ?? 0;
+              return (
+                <div key={key} className="flex flex-col items-center gap-1">
+                  <div className="text-xs text-gray-400">{label}</div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => adjustAsi(key, -1)}
+                      disabled={val === 0}
+                      className="w-6 h-6 rounded bg-gray-700 text-white text-sm hover:bg-gray-600 disabled:opacity-30"
+                    >−</button>
+                    <span className={`text-sm font-bold w-4 text-center ${val > 0 ? 'text-green-400' : 'text-gray-500'}`}>{val > 0 ? `+${val}` : '0'}</span>
+                    <button
+                      onClick={() => adjustAsi(key, 1)}
+                      disabled={total >= 2 || val >= 2}
+                      className="w-6 h-6 rounded bg-gray-700 text-white text-sm hover:bg-gray-600 disabled:opacity-30"
+                    >+</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {total === 2 && (
+            <div className="mt-2 text-xs text-green-400">✓ +2 distributed</div>
+          )}
+        </div>
+      )}
+
+      {tab === 'feat' && (
+        <div>
+          <input
+            type="text"
+            placeholder="Search feats..."
+            value={featSearch}
+            onChange={e => setFeatSearch(e.target.value)}
+            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-xs mb-2 focus:outline-none focus:border-indigo-500"
+          />
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {filteredFeats.map(feat => (
+              <button
+                key={feat.name}
+                onClick={() => onChoice({ asiLevel: milestoneLevel, type: 'feat', feat: feat.name })}
+                title={feat.description + (feat.prerequisite ? `\nPrereq: ${feat.prerequisite}` : '')}
+                className={`w-full text-left p-2 rounded text-xs transition-colors ${
+                  choice?.feat === feat.name
+                    ? 'bg-indigo-900/40 border border-indigo-500 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                <div className="font-semibold">{feat.name}</div>
+                <div className="text-gray-400 truncate">{feat.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepLevelFeatures({
+  character, setCharacter,
+}: {
+  character: CharacterData;
+  setCharacter: React.Dispatch<React.SetStateAction<CharacterData>>;
+}) {
+  const level = character.level ?? 1;
+  const milestones = getAsiLevelsForClass(character.class, level);
+  const asiChoices = character.asiChoices ?? [];
+
+  return (
+    <div>
+      <h2 className="text-2xl font-bold mb-1">Level Features</h2>
+      <p className="text-gray-400 mb-6">
+        {character.class} level {level} grants {milestones.length} Ability Score Improvement{milestones.length !== 1 ? 's' : ''} or Feat{milestones.length !== 1 ? 's' : ''}.
+      </p>
+      {milestones.map((milestoneLevel, i) => (
+        <AsiOrFeatCard
+          key={milestoneLevel}
+          milestoneLevel={milestoneLevel}
+          choice={asiChoices[i]}
+          onChoice={choice => {
+            const newChoices = [...asiChoices];
+            newChoices[i] = choice;
+            setCharacter(c => ({ ...c, asiChoices: newChoices }));
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ─── Main Component ────────────────────────────────────────────────────────
 
 export function CharacterCreator() {
@@ -1418,54 +1898,78 @@ export function CharacterCreator() {
   const [importError, setImportError] = useState('');
   const playerLoadedRef = useRef(false);
 
-  // If a playerId is in the URL (invite flow), pre-load their foundryUserId
+  // If a playerId is in the URL (invite flow), pre-load their foundryUserId and partyLevel
   useEffect(() => {
     if (!playerId || playerLoadedRef.current) return;
     playerLoadedRef.current = true;
     api.getPlayerPortal(playerId).then(data => {
-      if (data.player.foundryUserId) {
-        setCharacter(c => ({ ...c, foundryUserId: data.player.foundryUserId }));
-      }
+      setCharacter(c => ({
+        ...c,
+        ...(data.player.foundryUserId ? { foundryUserId: data.player.foundryUserId } : {}),
+        ...(data.campaign.partyLevel ? { level: data.campaign.partyLevel } : {}),
+      }));
     }).catch(() => { /* non-critical */ });
   }, [playerId]);
 
+  const activeSteps = getActiveSteps(character.class, character.level ?? 1);
+  const currentStepName = activeSteps[step - 1] ?? '';
+
   const canProceed = (): boolean => {
-    switch (step) {
-      case 1: return !!character.race && (!getRaceData(character.race)?.subraces?.length || !!character.subrace);
-      case 2: {
+    switch (currentStepName) {
+      case 'Race': return !!character.race && (!getRaceData(character.race)?.subraces?.length || !!character.subrace);
+      case 'Class': {
         if (!character.class) return false;
         const cls = getClassData(character.class);
         if (cls?.level1Subclass && !character.subclass) return false;
         return true;
       }
-      case 3: return !!character.background;
-      case 4: {
+      case 'Background': return !!character.background;
+      case 'Ability Scores': {
         if (character.scoreMethod === 'standard') {
-          // Verify all 6 standard array values are assigned (not just defaulted to 8)
           const sorted = [...Object.values(character.abilityScores)].sort((a, b) => b - a);
           const expected = [...STANDARD_ARRAY].sort((a, b) => b - a);
           return sorted.every((v, i) => v === expected[i]);
         }
-        // Point buy: scores are always valid (UI enforces 8-15 range)
         return true;
       }
-      case 5: {
+      case 'Skills': {
         const classData = getClassData(character.class);
         const bgData = getBackgroundData(character.background);
         const bgSkills = bgData?.skills ?? [];
         const classChoices = character.chosenSkills.filter(s => !bgSkills.includes(s));
         return classChoices.length === (classData?.skillChoiceCount ?? 2);
       }
-      case 6: return true;
-      case 7: return true;
+      case 'Equipment': return true;
+      case 'Spells': {
+        const lvl = character.level ?? 1;
+        const needed = getCantripCount(character.class, lvl);
+        if ((character.selectedCantrips ?? []).length !== needed) return false;
+        const spellsKnown = getSpellsKnown(character.class, lvl);
+        if (spellsKnown > 0) {
+          return (character.selectedSpells ?? []).length === spellsKnown;
+        }
+        return true; // prepared casters: no enforced count
+      }
+      case 'Level Features': {
+        const milestones = getAsiLevelsForClass(character.class, character.level ?? 1);
+        return milestones.every((_, i) => {
+          const c = (character.asiChoices ?? [])[i];
+          if (!c) return false;
+          if (c.type === 'feat') return !!c.feat;
+          const total = Object.values(c.improvements ?? {}).reduce((a, b) => a + (b ?? 0), 0);
+          return total === 2;
+        });
+      }
       default: return true;
     }
   };
 
   const handleAIGenerate = (generated: CharacterData) => {
-    setCharacter(generated);
+    const mergedLevel = generated.level ?? character.level ?? 1;
+    const steps = getActiveSteps(generated.class ?? '', mergedLevel);
+    setCharacter({ ...DEFAULT_CHARACTER, ...generated, level: mergedLevel });
     setShowAIModal(false);
-    setStep(7); // jump to review
+    setStep(steps.length); // jump to review
   };
 
   const handleExport = () => {
@@ -1497,7 +2001,7 @@ export function CharacterCreator() {
         }
         setCharacter(parsed);
         setSyncResult(null);
-        setStep(7);
+        setStep(getActiveSteps(parsed.class ?? '', parsed.level ?? 1).length);
       } catch {
         setImportError('Invalid JSON file. Please check the file and try again.');
       }
@@ -1512,7 +2016,16 @@ export function CharacterCreator() {
     setSyncResult(null);
     try {
       // Apply racial bonuses before sending — base scores are stored without them
-      const finalScores = applyRacialBonuses(character.abilityScores, character.race, character.subrace);
+      const racialScores = applyRacialBonuses(character.abilityScores, character.race, character.subrace);
+      // Apply ASI improvements
+      const finalScores = { ...racialScores };
+      for (const choice of character.asiChoices ?? []) {
+        if (choice.type === 'asi' && choice.improvements) {
+          for (const [key, val] of Object.entries(choice.improvements)) {
+            (finalScores as Record<string, number>)[key] = Math.min(20, (finalScores as Record<string, number>)[key] + (val ?? 0));
+          }
+        }
+      }
       const result = await api.syncCharacterToFoundry({ ...character, abilityScores: finalScores });
       setSyncResult({ success: true, foundryActorId: result.foundryActorId, name: result.name });
 
@@ -1578,17 +2091,19 @@ export function CharacterCreator() {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-8">
-        <ProgressBar step={step} />
+        <ProgressBar step={step} steps={activeSteps} />
 
         {/* Step content */}
         <div className="bg-gray-850 min-h-64">
-          {step === 1 && <StepRace character={character} setCharacter={setCharacter} />}
-          {step === 2 && <StepClass character={character} setCharacter={setCharacter} />}
-          {step === 3 && <StepBackground character={character} setCharacter={setCharacter} />}
-          {step === 4 && <StepAbilityScores character={character} setCharacter={setCharacter} />}
-          {step === 5 && <StepSkills character={character} setCharacter={setCharacter} />}
-          {step === 6 && <StepEquipment character={character} setCharacter={setCharacter} />}
-          {step === 7 && (
+          {currentStepName === 'Race' && <StepRace character={character} setCharacter={setCharacter} />}
+          {currentStepName === 'Class' && <StepClass character={character} setCharacter={setCharacter} />}
+          {currentStepName === 'Background' && <StepBackground character={character} setCharacter={setCharacter} />}
+          {currentStepName === 'Ability Scores' && <StepAbilityScores character={character} setCharacter={setCharacter} />}
+          {currentStepName === 'Skills' && <StepSkills character={character} setCharacter={setCharacter} />}
+          {currentStepName === 'Equipment' && <StepEquipment character={character} setCharacter={setCharacter} />}
+          {currentStepName === 'Spells' && <StepSpells character={character} setCharacter={setCharacter} />}
+          {currentStepName === 'Level Features' && <StepLevelFeatures character={character} setCharacter={setCharacter} />}
+          {currentStepName === 'Details & Review' && (
             <StepDetails
               character={character}
               setCharacter={setCharacter}
@@ -1610,9 +2125,9 @@ export function CharacterCreator() {
             ← Previous
           </button>
 
-          {step < STEPS.length ? (
+          {step < activeSteps.length ? (
             <button
-              onClick={() => setStep(s => Math.min(STEPS.length, s + 1))}
+              onClick={() => setStep(s => Math.min(activeSteps.length, s + 1))}
               disabled={!canProceed()}
               className={`px-6 py-2 rounded-lg font-semibold transition-all ${
                 canProceed()
