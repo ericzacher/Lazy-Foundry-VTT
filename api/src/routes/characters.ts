@@ -50,9 +50,19 @@ type CasterProgression = 'full' | 'half' | 'pact' | 'none';
 
 const CASTER_PROGRESSION: Record<string, CasterProgression> = {
   Bard: 'full', Cleric: 'full', Druid: 'full', Sorcerer: 'full', Wizard: 'full',
-  Paladin: 'half', Ranger: 'half',
+  Artificer: 'half', Paladin: 'half', Ranger: 'half',
   Warlock: 'pact',
 };
+
+// Artificer gets slots at level 1 (unique among half-casters)
+const SPELL_SLOTS_ARTIFICER: number[][] = [
+  [],
+  [2,0,0,0,0,0,0,0,0], [2,0,0,0,0,0,0,0,0], [3,0,0,0,0,0,0,0,0], [3,0,0,0,0,0,0,0,0],
+  [4,2,0,0,0,0,0,0,0], [4,2,0,0,0,0,0,0,0], [4,3,0,0,0,0,0,0,0], [4,3,0,0,0,0,0,0,0],
+  [4,3,2,0,0,0,0,0,0], [4,3,2,0,0,0,0,0,0], [4,3,3,0,0,0,0,0,0], [4,3,3,0,0,0,0,0,0],
+  [4,3,3,1,0,0,0,0,0], [4,3,3,1,0,0,0,0,0], [4,3,3,2,0,0,0,0,0], [4,3,3,2,0,0,0,0,0],
+  [4,3,3,3,1,0,0,0,0], [4,3,3,3,1,0,0,0,0], [4,3,3,3,2,0,0,0,0], [4,3,3,3,2,0,0,0,0],
+];
 
 const SPELL_SLOTS_FULL: number[][] = [
   [],
@@ -87,7 +97,8 @@ function buildSpellSlots(className: string, level: number): Record<string, { val
     if (count === 0) return {};
     return { [`spell${pactLevel}`]: { value: count, max: count, override: null } };
   }
-  const table = prog === 'half' ? SPELL_SLOTS_HALF : SPELL_SLOTS_FULL;
+  const table = className === 'Artificer' ? SPELL_SLOTS_ARTIFICER
+    : prog === 'half' ? SPELL_SLOTS_HALF : SPELL_SLOTS_FULL;
   const slots = table[idx] ?? [];
   const result: Record<string, { value: number; max: number; override: null }> = {};
   slots.forEach((count, i) => {
@@ -98,9 +109,30 @@ function buildSpellSlots(className: string, level: number): Record<string, { val
 
 // Class hit die map
 const HIT_DICE: Record<string, number> = {
-  Barbarian: 12, Bard: 8, Cleric: 8, Druid: 8, Fighter: 10,
+  Artificer: 8, Barbarian: 12, Bard: 8, Cleric: 8, Druid: 8, Fighter: 10,
   Monk: 8, Paladin: 10, Ranger: 10, Rogue: 8, Sorcerer: 6,
   Warlock: 8, Wizard: 6,
+};
+
+// Class saving throw proficiencies
+const CLASS_SAVING_THROWS: Record<string, string[]> = {
+  Artificer: ['con', 'int'], Barbarian: ['str', 'con'], Bard: ['dex', 'cha'],
+  Cleric: ['wis', 'cha'], Druid: ['int', 'wis'], Fighter: ['str', 'con'],
+  Monk: ['str', 'dex'], Paladin: ['wis', 'cha'], Ranger: ['str', 'dex'],
+  Rogue: ['dex', 'int'], Sorcerer: ['con', 'cha'], Warlock: ['wis', 'cha'],
+  Wizard: ['int', 'wis'],
+};
+
+// Classes that prepare spells (vs known casters)
+const PREPARED_CASTERS = ['Cleric', 'Druid', 'Paladin', 'Wizard', 'Artificer'];
+
+// Race base walking speed (PHB)
+const RACE_SPEED: Record<string, number> = {
+  Dwarf: 25, Halfling: 25, Gnome: 25,
+  // All others default to 30; Wood Elf handled via subrace below
+};
+const SUBRACE_SPEED: Record<string, number> = {
+  'Wood Elf': 35,
 };
 
 // Starting AC bonuses from armor (check equipment list for armor names)
@@ -124,20 +156,25 @@ function parseItemName(raw: string): { name: string; quantity: number } {
 }
 
 function calcAC(dexMod: number, equipment: string[]): number {
+  let baseAC = 10 + dexMod; // Unarmored default
+
   for (const item of equipment) {
     for (const [armor, ac] of Object.entries(ARMOR_AC)) {
       if (item.toLowerCase().includes(armor.toLowerCase())) {
-        // Leather armor uses dex modifier
-        if (armor === 'Leather Armor') return ac + dexMod;
-        // Heavy armor (chain mail, ring mail) — no dex
-        if (armor === 'Chain Mail' || armor === 'Ring Mail') return ac;
-        // Medium armor — max +2 dex
-        return ac + Math.min(dexMod, 2);
+        if (armor === 'Leather Armor') { baseAC = ac + dexMod; }
+        else if (armor === 'Chain Mail' || armor === 'Ring Mail') { baseAC = ac; }
+        else { baseAC = ac + Math.min(dexMod, 2); } // Medium armor
+        break;
       }
     }
   }
-  // Unarmored: 10 + DEX
-  return 10 + dexMod;
+
+  // Shield adds +2 AC
+  if (equipment.some(e => /\bshield\b/i.test(e) && !/scale mail/i.test(e))) {
+    baseAC += 2;
+  }
+
+  return baseAC;
 }
 
 const ALL_SKILL_KEYS = [
@@ -238,6 +275,18 @@ router.post(
           const entry = { ...subCompItem };
           delete (entry as Record<string, unknown>)._id;
           resolvedItems.push(entry);
+        } else {
+          // Fallback stub so the subclass still appears on the sheet
+          resolvedItems.push({
+            name: data.subclass,
+            type: 'subclass',
+            system: {
+              description: { value: '' },
+              identifier: data.subclass.toLowerCase().replace(/\s+/g, '-'),
+              classIdentifier: data.class.toLowerCase(),
+            },
+          });
+          logInfo('Subclass not found in compendium, using stub', { subclass: data.subclass, class: data.class });
         }
       }
 
@@ -267,13 +316,20 @@ router.post(
       }
 
       // 4. Selected spells (cantrips + leveled spells)
+      const isPreparedCaster = PREPARED_CASTERS.includes(data.class);
       const allSpells = [...(data.selectedCantrips ?? []), ...(data.selectedSpells ?? [])];
       for (const spellName of allSpells) {
         const spellItem = await foundrySyncService.findCompendiumItem('dnd5e.spells', spellName);
         if (spellItem) {
           const entry = { ...spellItem };
           delete (entry as Record<string, unknown>)._id;
-          resolvedItems.push(entry);
+          const sys = (entry.system as Record<string, unknown>) ?? {};
+          const spellLevel = (sys.level as number) ?? 0;
+          // Mark leveled spells as prepared for prepared casters
+          if (spellLevel > 0 && isPreparedCaster) {
+            sys.preparation = { mode: 'prepared', prepared: true };
+          }
+          resolvedItems.push({ ...entry, system: sys });
         } else {
           resolvedItems.push({
             name: spellName,
@@ -285,24 +341,46 @@ router.post(
 
       logInfo('Resolved embedded items', { count: resolvedItems.length, class: data.class, spells: allSpells.length });
 
+      // Use class compendium icon for the actor portrait + token art
+      const actorImg = (classCompItem as Record<string, unknown> | null)?.img as string
+        || `icons/svg/mystery-man.svg`;
+
       const actorData = {
         name: data.name,
         type: 'character' as const,
+        img: actorImg,
         ownership,
+        prototypeToken: {
+          name: data.name,
+          actorLink: true,
+          disposition: 1, // Friendly
+          texture: { src: actorImg },
+          sight: {
+            enabled: true,
+            range: 60,          // 60 ft darkvision default — DM can adjust per-token
+            angle: 360,
+            visionMode: 'basic',
+          },
+          detectionModes: [{
+            id: 'basicSight',
+            enabled: true,
+            range: 60,
+          }],
+        },
         items: resolvedItems,
         system: {
           abilities: {
-            str: { value: abilityScores.str },
-            dex: { value: abilityScores.dex },
-            con: { value: abilityScores.con },
-            int: { value: abilityScores.int },
-            wis: { value: abilityScores.wis },
-            cha: { value: abilityScores.cha },
+            str: { value: abilityScores.str, proficient: (CLASS_SAVING_THROWS[data.class] ?? []).includes('str') ? 1 : 0 },
+            dex: { value: abilityScores.dex, proficient: (CLASS_SAVING_THROWS[data.class] ?? []).includes('dex') ? 1 : 0 },
+            con: { value: abilityScores.con, proficient: (CLASS_SAVING_THROWS[data.class] ?? []).includes('con') ? 1 : 0 },
+            int: { value: abilityScores.int, proficient: (CLASS_SAVING_THROWS[data.class] ?? []).includes('int') ? 1 : 0 },
+            wis: { value: abilityScores.wis, proficient: (CLASS_SAVING_THROWS[data.class] ?? []).includes('wis') ? 1 : 0 },
+            cha: { value: abilityScores.cha, proficient: (CLASS_SAVING_THROWS[data.class] ?? []).includes('cha') ? 1 : 0 },
           },
           attributes: {
             hp: { value: Math.max(1, hp), max: Math.max(1, hp) },
             ac: { flat: ac },
-            speed: { walk: 30 },
+            speed: { walk: SUBRACE_SPEED[data.subrace ?? ''] ?? RACE_SPEED[data.race] ?? 30 },
           },
           details: {
             race: data.race + (data.subrace ? ` (${data.subrace})` : ''),
@@ -310,8 +388,12 @@ router.post(
             alignment: data.alignment,
             level,
             biography: {
-              value: buildBiography(data),
+              value: data.backstory ? `<p>${data.backstory.replace(/\n/g, '</p><p>')}</p>` : '',
             },
+            trait: data.personalityTraits?.join('; ') || '',
+            ideal: data.ideals || '',
+            bond: data.bonds || '',
+            flaw: data.flaws || '',
           },
           skills,
           currency: { gp, sp: 0, cp: 0, ep: 0, pp: 0 },
@@ -340,26 +422,7 @@ router.post(
   }
 );
 
-function buildBiography(data: CharacterData): string {
-  const parts: string[] = [
-    `<h2>${data.name}</h2>`,
-    `<p><strong>Race:</strong> ${data.race}${data.subrace ? ` (${data.subrace})` : ''}</p>`,
-    `<p><strong>Class:</strong> ${data.class}${data.subclass ? ` — ${data.subclass}` : ''} (Level ${data.level ?? 1})</p>`,
-    `<p><strong>Background:</strong> ${data.background}</p>`,
-    `<p><strong>Alignment:</strong> ${data.alignment}</p>`,
-  ];
-  if (data.backstory) parts.push(`<h3>Backstory</h3><p>${data.backstory}</p>`);
-  if (data.personalityTraits?.length) {
-    parts.push(`<h3>Personality Traits</h3><ul>${data.personalityTraits.map(t => `<li>${t}</li>`).join('')}</ul>`);
-  }
-  if (data.ideals) parts.push(`<h3>Ideals</h3><p>${data.ideals}</p>`);
-  if (data.bonds) parts.push(`<h3>Bonds</h3><p>${data.bonds}</p>`);
-  if (data.flaws) parts.push(`<h3>Flaws</h3><p>${data.flaws}</p>`);
-  if (data.startingEquipment?.length) {
-    parts.push(`<h3>Starting Equipment</h3><ul>${data.startingEquipment.map(e => `<li>${e}</li>`).join('')}</ul>`);
-  }
-  return parts.join('\n');
-}
+
 
 // ─── POST /generate-ai ────────────────────────────────────────────────────────
 
@@ -430,10 +493,14 @@ Rules:
           { role: 'user', content: `Create a D&D 5e character for this concept: ${concept}` },
         ],
         temperature: 0.8,
-        max_tokens: 1500,
+        max_tokens: 3000,
+        response_format: { type: 'json_object' },
       });
 
+      const finishReason = completion.choices[0]?.finish_reason;
       const raw = completion.choices[0]?.message?.content?.trim() ?? '';
+
+      logInfo('AI generation response', { finishReason, rawLength: raw.length });
 
       // Extract JSON: strip markdown fences, then grab first { ... } block
       let jsonStr = raw
@@ -463,7 +530,7 @@ Rules:
         parsed.startingGold = typeof parsed.startingGold === 'number' ? parsed.startingGold : parseInt(String(parsed.startingGold), 10) || 10;
         character = parsed;
       } catch {
-        logError('AI character generation: invalid JSON', { raw: raw.slice(0, 300) });
+        logError('AI character generation: invalid JSON', { raw: raw.slice(0, 500) });
         res.status(500).json({ error: 'AI returned invalid character data. Try again or use a simpler concept.' });
         return;
       }
@@ -533,7 +600,8 @@ Make the content thematically appropriate for the race, class, background, and a
           { role: 'user', content: `Generate lore for: ${characterDesc}` },
         ],
         temperature: 0.85,
-        max_tokens: 800,
+        max_tokens: 2000,
+        response_format: { type: 'json_object' },
       });
 
       const raw = completion.choices[0]?.message?.content?.trim() ?? '';

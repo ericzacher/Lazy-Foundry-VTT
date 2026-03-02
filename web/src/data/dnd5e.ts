@@ -286,7 +286,7 @@ export const CLASSES: DndClass[] = [
     hitDie: 8,
     savingThrows: ['con', 'int'],
     armorProf: ['Light', 'Medium', 'Shields'],
-    weaponProf: ['Simple', 'Martial'],
+    weaponProf: ['Simple'],
     skillChoiceCount: 2,
     skillOptions: ['arc', 'his', 'inv', 'med', 'nat', 'prc', 'slt'],
     startingGoldD6s: 5,
@@ -801,10 +801,10 @@ export const ASI_LEVELS: Record<string, number[]> = {
   Cleric:    [4, 8, 12, 16, 19],
   Druid:     [4, 8, 12, 16, 19],
   Fighter:   [4, 6, 8, 12, 14, 16, 19],
-  Monk:      [4, 8, 10, 12, 16, 19],
+  Monk:      [4, 8, 12, 16, 19],
   Paladin:   [4, 8, 12, 16, 19],
   Ranger:    [4, 8, 12, 16, 19],
-  Rogue:     [4, 8, 10, 12, 16, 18],
+  Rogue:     [4, 8, 10, 12, 16, 19],
   Sorcerer:  [4, 8, 12, 16, 19],
   Warlock:   [4, 8, 12, 16, 19],
   Wizard:    [4, 8, 12, 16, 19],
@@ -820,7 +820,7 @@ export type SpellcastingProgression = 'full' | 'half' | 'pact' | 'none';
 
 export const SPELLCASTING_PROGRESSION: Record<string, SpellcastingProgression> = {
   Bard: 'full', Cleric: 'full', Druid: 'full', Sorcerer: 'full', Wizard: 'full',
-  Paladin: 'half', Ranger: 'half',
+  Artificer: 'half', Paladin: 'half', Ranger: 'half',
   Warlock: 'pact',
 };
 
@@ -831,11 +831,12 @@ export function isSpellcaster(className: string): boolean {
 }
 
 export function isPreparedCaster(className: string): boolean {
-  return ['Cleric', 'Druid', 'Paladin', 'Wizard'].includes(className);
+  return ['Artificer', 'Cleric', 'Druid', 'Paladin', 'Wizard'].includes(className);
 }
 
 /** Cantrips known per class per level (index = level - 1) */
 const CANTRIP_TABLE: Record<string, number[]> = {
+  Artificer:[2,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,4,4,4],
   Bard:     [2,2,2,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,4],
   Cleric:   [3,3,3,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5],
   Druid:    [2,2,2,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,4],
@@ -856,7 +857,7 @@ const SPELLS_KNOWN_TABLE: Record<string, number[]> = {
   Bard:     [4,5,6,7,8,9,10,11,12,14,15,15,16,18,19,19,20,22,22,22],
   Ranger:   [0,2,3,3,4,4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9,10,10,11,11],
   Sorcerer: [2,3,4,5,6,7, 8, 9,10,11,12,12,13,13,14,14,15,15,15,15],
-  Warlock:  [2,3,4,5,6,7, 8, 9,10,10,11,11,12,12,14,15,15,16,16,16],
+  Warlock:  [2,3,4,5,6,7, 8, 9,10,10,11,11,12,12,13,13,14,14,15,15],
 };
 
 export function getSpellsKnown(className: string, level: number): number {
@@ -891,6 +892,16 @@ export const SPELL_SLOTS_FULL: number[][] = [
   [4,3,3,3,2,1,1,1,1], [4,3,3,3,3,1,1,1,1], [4,3,3,3,3,2,1,1,1], [4,3,3,3,3,2,2,1,1],
 ];
 
+/** Artificer spell slots (half-caster but gets slots at level 1) */
+export const SPELL_SLOTS_ARTIFICER: number[][] = [
+  [],
+  [2,0,0,0,0,0,0,0,0], [2,0,0,0,0,0,0,0,0], [3,0,0,0,0,0,0,0,0], [3,0,0,0,0,0,0,0,0],
+  [4,2,0,0,0,0,0,0,0], [4,2,0,0,0,0,0,0,0], [4,3,0,0,0,0,0,0,0], [4,3,0,0,0,0,0,0,0],
+  [4,3,2,0,0,0,0,0,0], [4,3,2,0,0,0,0,0,0], [4,3,3,0,0,0,0,0,0], [4,3,3,0,0,0,0,0,0],
+  [4,3,3,1,0,0,0,0,0], [4,3,3,1,0,0,0,0,0], [4,3,3,2,0,0,0,0,0], [4,3,3,2,0,0,0,0,0],
+  [4,3,3,3,1,0,0,0,0], [4,3,3,3,1,0,0,0,0], [4,3,3,3,2,0,0,0,0], [4,3,3,3,2,0,0,0,0],
+];
+
 /** Half-caster spell slots (Paladin, Ranger) */
 export const SPELL_SLOTS_HALF: number[][] = [
   [],
@@ -917,7 +928,8 @@ export function getSpellSlots(className: string, level: number): Record<string, 
     if (count === 0) return {};
     return { [`spell${pactLevel}`]: { value: count, max: count } };
   }
-  const table = prog === 'half' ? SPELL_SLOTS_HALF : SPELL_SLOTS_FULL;
+  const table = className === 'Artificer' ? SPELL_SLOTS_ARTIFICER
+    : prog === 'half' ? SPELL_SLOTS_HALF : SPELL_SLOTS_FULL;
   const slots = table[idx] ?? [];
   const result: Record<string, { value: number; max: number }> = {};
   slots.forEach((count, i) => {
