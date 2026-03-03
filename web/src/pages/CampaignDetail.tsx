@@ -1039,14 +1039,27 @@ export function CampaignDetail() {
                     {map.details.pointsOfInterest && map.details.pointsOfInterest.length > 0 && (
                       <div>
                         <h4 className="text-sm font-medium text-gray-400 mb-2">Points of Interest</h4>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {map.details.pointsOfInterest.map((poi, i) => (
-                            <div key={i} className="flex gap-2 text-sm">
-                              <span className="text-yellow-400">★</span>
-                              <div>
-                                <span className="font-medium text-yellow-300">{poi.name}</span>
-                                <span className="text-gray-500"> ({poi.type})</span>
-                                <p className="text-gray-400 text-xs">{poi.description}</p>
+                            <div key={i} className="bg-gray-700/50 rounded p-3 border border-gray-600/50">
+                              <div className="flex items-start gap-2">
+                                <span className="text-yellow-400 mt-0.5">&#9733;</span>
+                                <div className="flex-1">
+                                  <div className="flex justify-between items-start">
+                                    <span className="font-medium text-yellow-300">{poi.name}</span>
+                                    <span className="text-xs px-2 py-0.5 rounded bg-gray-600/50 text-gray-400">
+                                      {poi.type}
+                                    </span>
+                                  </div>
+                                  {poi.location && (
+                                    <p className="text-gray-500 text-xs mt-0.5">Location: {poi.location}</p>
+                                  )}
+                                  <div className="text-gray-400 text-xs mt-2 space-y-1">
+                                    {poi.description.split('\n').filter(Boolean).map((para, j) => (
+                                      <p key={j}>{para}</p>
+                                    ))}
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           ))}

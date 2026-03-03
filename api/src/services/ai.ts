@@ -257,6 +257,7 @@ export interface GeneratedMapDescription {
     name: string;
     description: string;
     type: string;
+    location: string;
   }>;
   encounters: Array<{
     location: string;
@@ -298,8 +299,9 @@ Create a detailed map layout. Respond with VALID JSON only. Use this exact struc
   "pointsOfInterest": [
     {
       "name": "POI Name",
-      "description": "POI description",
-      "type": "treasure"
+      "location": "Room Name",
+      "type": "treasure",
+      "description": "First paragraph: what players physically see and sense when they approach. Second paragraph: the lore and history behind this point of interest. Third paragraph: any interactive elements - items to take, traps to disarm, puzzles to solve, or secrets to uncover."
     }
   ],
   "encounters": [
@@ -318,10 +320,13 @@ Create a detailed map layout. Respond with VALID JSON only. Use this exact struc
   ]
 }
 
-Important: 
+Important:
 - Keep dimensions between 20-60 for width and height
 - Create 4-8 rooms
 - Do NOT add extra fields to encounters (no "name" field in encounters)
+- Each point of interest MUST have a "location" field that exactly matches one of the room names
+- POI descriptions should be 2-3 paragraphs: first paragraph describes what players see, second paragraph provides lore/history, third paragraph describes any interactive elements (traps, puzzles, items players can take)
+- Distribute POIs across different rooms when possible
 - Ensure all JSON is properly formatted
 - Use double quotes for all strings`;
 

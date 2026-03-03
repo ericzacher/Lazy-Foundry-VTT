@@ -976,6 +976,54 @@ export class FoundrySyncService {
   }
 
   /**
+   * Create a Note (map pin) on a scene in Foundry VTT.
+   * Notes are embedded documents of a Scene and link to a JournalEntry.
+   */
+  async createNote(
+    sceneId: string,
+    noteData: {
+      entryId: string;
+      x: number;
+      y: number;
+      text?: string;
+      fontSize?: number;
+      textColor?: string;
+      textAnchor?: number;
+      iconSize?: number;
+      iconColor?: string;
+    }
+  ): Promise<FoundryResponse<{ _id: string }>> {
+    try {
+      await this.ensureConnected();
+
+      const result = await this.emitAndWait('modifyDocument', {
+        action: 'create',
+        type: 'Note',
+        operation: {
+          data: [noteData],
+          parentUuid: `Scene.${sceneId}`,
+          broadcast: true,
+        },
+      });
+
+      if (result.error) {
+        console.error('[FoundrySync] Note creation error:', result.error.message);
+        return { success: false, error: result.error.message };
+      }
+
+      const created = (result.result as Array<{ _id: string }>)?.[0];
+      console.log(`[FoundrySync] Note created: ${created?._id} on scene ${sceneId}`);
+      return { success: true, data: { _id: created?._id } };
+    } catch (error) {
+      console.error('[FoundrySync] Failed to create note:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
    * Get all scenes from Foundry VTT.
    */
   async getScenes(): Promise<FoundryResponse<Array<{ _id: string; name: string }>>> {

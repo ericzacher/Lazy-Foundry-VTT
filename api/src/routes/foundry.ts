@@ -8,6 +8,7 @@ import { Token } from '../entities/Token';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { foundrySyncService } from '../services/foundrySync';
 import { placeEncounterTokensFromMap, createCombatEncounters } from '../services/encounterPlacement';
+import { placePOINotesOnScene } from '../services/poiPlacement';
 
 const router = Router();
 
@@ -159,11 +160,19 @@ router.post(
         combatResults = await createCombatEncounters(map, placements, foundrySyncService);
       }
 
+      // Place POI notes on the scene
+      let poiResults = { journalIds: [] as string[], noteIds: [] as string[] };
+      const pois = mapDetails?.pointsOfInterest || [];
+      if (pois.length > 0 && map.foundrySceneId) {
+        poiResults = await placePOINotesOnScene(map, foundrySyncService);
+      }
+
       res.json({
         success: true,
         message: 'Map synced to Foundry VTT',
         foundrySceneId: result.data?._id,
         combats: combatResults,
+        pois: { placed: poiResults.noteIds.length, total: pois.length },
       });
     } catch (error) {
       console.error('Sync map error:', error);
@@ -376,6 +385,7 @@ router.post(
         journals: { success: 0, failed: 0 },
         tokens: { success: 0, failed: 0 },
         combats: { success: 0, failed: 0, combatants: 0 },
+        notes: { success: 0, failed: 0 },
         skippedMaps: [] as Array<{ name: string; reason: string }>,
       };
 
@@ -544,6 +554,20 @@ router.post(
             }
           } catch (error) {
             console.error(`[Bulk Sync] Token placement failed for map "${syncedMap.name}":`, error);
+          }
+        }
+
+        // Place POI notes
+        const poiData = (syncedMap.details as any)?.pointsOfInterest || [];
+        if (poiData.length > 0 && syncedMap.foundrySceneId) {
+          try {
+            const poiResult = await placePOINotesOnScene(syncedMap, foundrySyncService);
+            results.notes.success += poiResult.noteIds.length;
+            results.notes.failed += poiData.length - poiResult.noteIds.length;
+            results.journals.success += poiResult.journalIds.length;
+          } catch (error) {
+            console.error(`[Bulk Sync] POI placement failed for map "${syncedMap.name}":`, error);
+            results.notes.failed += poiData.length;
           }
         }
       }

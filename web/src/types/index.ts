@@ -191,6 +191,7 @@ export interface MapData {
       name: string;
       description: string;
       type: string;
+      location?: string;
     }>;
     encounters?: Array<{
       location?: string;
