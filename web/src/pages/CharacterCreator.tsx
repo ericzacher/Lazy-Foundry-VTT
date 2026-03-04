@@ -905,6 +905,7 @@ function StepDetails({
   const finalScores = applyRacialBonuses(character.abilityScores, character.race, character.subrace);
   const conMod = calcModifier(finalScores.con);
   const dexMod = calcModifier(finalScores.dex);
+  const wisMod = calcModifier(finalScores.wis);
   const hitDie = getClassData(character.class)?.hitDie ?? 8;
   const charLevel = character.level ?? 1;
   const avgPerLevel = Math.max(1, Math.ceil(hitDie / 2) + 1 + conMod);
@@ -937,11 +938,59 @@ function StepDetails({
     }, 70);
   };
 
-  // Simple AC calc (unarmored or leather)
-  const hasChainMail = character.startingEquipment.some(e => e.toLowerCase().includes('chain mail'));
-  const hasScaleMail = character.startingEquipment.some(e => e.toLowerCase().includes('scale mail'));
-  const hasLeather = character.startingEquipment.some(e => e.toLowerCase().includes('leather armor'));
-  const ac = hasChainMail ? 16 : hasScaleMail ? (14 + Math.min(dexMod, 2)) : hasLeather ? (11 + dexMod) : (10 + dexMod);
+  // AC calculation with class-specific Unarmored Defense
+  const hasArmor = character.startingEquipment.some(e => {
+    const lower = e.toLowerCase();
+    return lower.includes('chain mail') || lower.includes('scale mail') ||
+           lower.includes('leather armor') || lower.includes('studded leather') ||
+           lower.includes('hide armor') || lower.includes('breastplate') ||
+           lower.includes('half plate') || lower.includes('ring mail') ||
+           lower.includes('splint') || lower.includes('plate');
+  });
+  const hasShield = character.startingEquipment.some(e => /\bshield\b/i.test(e) && !/scale mail/i.test(e));
+
+  const calcArmoredAC = (): number => {
+    const equipment = character.startingEquipment;
+    if (equipment.some(e => e.toLowerCase().includes('plate') && !e.toLowerCase().includes('half'))) return 18;
+    if (equipment.some(e => e.toLowerCase().includes('splint'))) return 17;
+    if (equipment.some(e => e.toLowerCase().includes('chain mail'))) return 16;
+    if (equipment.some(e => e.toLowerCase().includes('half plate'))) return 15 + Math.min(dexMod, 2);
+    if (equipment.some(e => e.toLowerCase().includes('breastplate'))) return 14 + Math.min(dexMod, 2);
+    if (equipment.some(e => e.toLowerCase().includes('scale mail'))) return 14 + Math.min(dexMod, 2);
+    if (equipment.some(e => e.toLowerCase().includes('chain shirt'))) return 13 + Math.min(dexMod, 2);
+    if (equipment.some(e => e.toLowerCase().includes('hide'))) return 12 + Math.min(dexMod, 2);
+    if (equipment.some(e => e.toLowerCase().includes('studded leather'))) return 12 + dexMod;
+    if (equipment.some(e => e.toLowerCase().includes('leather armor'))) return 11 + dexMod;
+    if (equipment.some(e => e.toLowerCase().includes('ring mail'))) return 14;
+    return 10 + dexMod;
+  };
+
+  const calcUnarmoredAC = (): number => {
+    if (character.class === 'Monk') {
+      // Monk: 10 + DEX + WIS (no armor, no shield)
+      return 10 + dexMod + wisMod;
+    } else if (character.class === 'Barbarian') {
+      // Barbarian: 10 + DEX + CON (no armor, can use shield)
+      return 10 + dexMod + conMod + (hasShield ? 2 : 0);
+    }
+    // Standard: 10 + DEX
+    return 10 + dexMod + (hasShield ? 2 : 0);
+  };
+
+  // Calculate AC
+  let ac: number;
+  if (character.class === 'Monk') {
+    // Monk loses Unarmored Defense with armor or shield
+    ac = (hasArmor || hasShield) ? calcArmoredAC() + (hasShield ? 2 : 0) : calcUnarmoredAC();
+  } else if (character.class === 'Barbarian') {
+    // Barbarian can choose better of armored or unarmored
+    const armoredAC = calcArmoredAC() + (hasShield ? 2 : 0);
+    const unarmoredAC = calcUnarmoredAC();
+    ac = hasArmor ? Math.max(armoredAC, unarmoredAC) : unarmoredAC;
+  } else {
+    // Other classes: use armor if present, otherwise unarmored
+    ac = hasArmor ? calcArmoredAC() + (hasShield ? 2 : 0) : calcUnarmoredAC();
+  }
 
   const isComplete = character.name.trim().length > 0 && character.race && character.class && character.background;
 

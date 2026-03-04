@@ -165,33 +165,105 @@ function calcMod(score: number): number {
   return Math.floor((score - 10) / 2);
 }
 
-// Parse "Handaxe (2)" → { name: "Handaxe", quantity: 2 }
+// Parse equipment strings into name and quantity
+// Handles: "Handaxe (2)", "2 Handaxes", "20 Arrows", "5 Javelins"
 function parseItemName(raw: string): { name: string; quantity: number } {
-  const match = raw.match(/^(.+?)\s*\((\d+)\)\s*$/);
-  if (match) return { name: match[1].trim(), quantity: parseInt(match[2], 10) };
+  // Format: "Item Name (quantity)" e.g. "Handaxe (2)"
+  const parenMatch = raw.match(/^(.+?)\s*\((\d+)\)\s*$/);
+  if (parenMatch) return { name: parenMatch[1].trim(), quantity: parseInt(parenMatch[2], 10) };
+
+  // Format: "quantity Item Names" e.g. "2 Handaxes", "20 Arrows", "10 Darts"
+  const prefixMatch = raw.match(/^(\d+)\s+(.+)$/);
+  if (prefixMatch) {
+    const qty = parseInt(prefixMatch[1], 10);
+    let itemName = prefixMatch[2].trim();
+    // Remove trailing 's' for plural if quantity > 1 (but not for items ending in 'ss' like 'Crossbow')
+    if (qty > 1 && itemName.endsWith('s') && !itemName.endsWith('ss') && !itemName.endsWith('ows')) {
+      // Handle common plurals: Handaxes → Handaxe, Daggers → Dagger, Javelins → Javelin
+      // But keep: Arrows, Bolts (these are already correct singular forms for ammo)
+      if (!['Arrows', 'Bolts', 'Darts'].includes(itemName)) {
+        itemName = itemName.slice(0, -1);
+      }
+    }
+    return { name: itemName, quantity: qty };
+  }
+
   return { name: raw.trim(), quantity: 1 };
 }
 
-function calcAC(dexMod: number, equipment: string[]): number {
-  let baseAC = 10 + dexMod; // Unarmored default
+function calcAC(
+  className: string,
+  dexMod: number,
+  wisMod: number,
+  conMod: number,
+  equipment: string[]
+): number {
+  // Check if wearing armor
+  const hasArmor = equipment.some(item =>
+    Object.keys(ARMOR_AC).some(armor =>
+      item.toLowerCase().includes(armor.toLowerCase()) && armor !== 'Shield'
+    )
+  );
 
+  // Check if using shield
+  const hasShield = equipment.some(e => /\bshield\b/i.test(e) && !/scale mail/i.test(e));
+
+  // Calculate unarmored AC based on class
+  let unarmoredAC: number;
+  if (className === 'Monk') {
+    // Monk Unarmored Defense: 10 + DEX + WIS (no armor, no shield)
+    unarmoredAC = 10 + dexMod + wisMod;
+  } else if (className === 'Barbarian') {
+    // Barbarian Unarmored Defense: 10 + DEX + CON (no armor, can use shield)
+    unarmoredAC = 10 + dexMod + conMod;
+    if (hasShield) unarmoredAC += 2;
+  } else {
+    // Standard unarmored: 10 + DEX
+    unarmoredAC = 10 + dexMod;
+    if (hasShield) unarmoredAC += 2;
+  }
+
+  // If no armor, return unarmored AC
+  if (!hasArmor) {
+    return unarmoredAC;
+  }
+
+  // Calculate armored AC
+  let armoredAC = 10 + dexMod;
   for (const item of equipment) {
     for (const [armor, ac] of Object.entries(ARMOR_AC)) {
       if (item.toLowerCase().includes(armor.toLowerCase())) {
-        if (armor === 'Leather Armor') { baseAC = ac + dexMod; }
-        else if (armor === 'Chain Mail' || armor === 'Ring Mail') { baseAC = ac; }
-        else { baseAC = ac + Math.min(dexMod, 2); } // Medium armor
+        if (armor === 'Leather Armor' || armor === 'Studded Leather') {
+          // Light armor: AC + full DEX
+          armoredAC = ac + dexMod;
+        } else if (armor === 'Chain Mail' || armor === 'Ring Mail' || armor === 'Splint' || armor === 'Plate') {
+          // Heavy armor: flat AC, no DEX
+          armoredAC = ac;
+        } else {
+          // Medium armor: AC + DEX (max 2)
+          armoredAC = ac + Math.min(dexMod, 2);
+        }
         break;
       }
     }
   }
 
-  // Shield adds +2 AC
-  if (equipment.some(e => /\bshield\b/i.test(e) && !/scale mail/i.test(e))) {
-    baseAC += 2;
+  // Shield adds +2 AC (for non-Monk classes when armored)
+  if (hasShield && className !== 'Monk') {
+    armoredAC += 2;
   }
 
-  return baseAC;
+  // Monk loses Unarmored Defense when wearing armor or shield
+  if (className === 'Monk' && (hasArmor || hasShield)) {
+    return armoredAC;
+  }
+
+  // For Barbarian, they can choose better of armored or unarmored
+  if (className === 'Barbarian') {
+    return Math.max(armoredAC, unarmoredAC);
+  }
+
+  return armoredAC;
 }
 
 const ALL_SKILL_KEYS = [
@@ -233,6 +305,7 @@ router.post(
       const strMod = calcMod(abilityScores.str);
       const dexMod = calcMod(abilityScores.dex);
       const conMod = calcMod(abilityScores.con);
+      const wisMod = calcMod(abilityScores.wis);
 
       const hitDie = HIT_DICE[data.class] ?? 8;
       const level = data.level ?? 1;
@@ -240,7 +313,7 @@ router.post(
       const hp = data.hpRoll !== undefined
         ? data.hpRoll
         : Math.max(1, (hitDie + conMod) + (level - 1) * avgPerLevel);
-      const ac = calcAC(dexMod, startingEquipment);
+      const ac = calcAC(data.class, dexMod, wisMod, conMod, startingEquipment);
 
       // Build skills object: 1 = proficient, 0 = not
       const skills: Record<string, { value: number }> = {};
@@ -287,7 +360,9 @@ router.post(
 
       // 2. Subclass item (level-1 subclasses: Cleric, Sorcerer, Warlock)
       if (data.subclass) {
-        const subCompItem = await foundrySyncService.findCompendiumItem('dnd5e.subclasses', data.subclass);
+        // Strip source tags like "(PHB)", "(XGtE)", "(TCoE)" for compendium lookup
+        const subclassName = data.subclass.replace(/\s*\([^)]*\)\s*$/, '').trim();
+        const subCompItem = await foundrySyncService.findCompendiumItem('dnd5e.subclasses', subclassName);
         if (subCompItem) {
           const entry = { ...subCompItem };
           delete (entry as Record<string, unknown>)._id;
