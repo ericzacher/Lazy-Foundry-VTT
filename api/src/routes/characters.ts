@@ -19,6 +19,13 @@ interface AbilityScores {
   cha: number;
 }
 
+interface AsiChoice {
+  asiLevel: number;
+  type: 'asi' | 'feat';
+  improvements?: Partial<Record<keyof AbilityScores, number>>;
+  feat?: string;
+}
+
 interface CharacterData {
   name: string;
   race: string;
@@ -42,6 +49,7 @@ interface CharacterData {
   level?: number;
   selectedCantrips?: string[];
   selectedSpells?: string[];
+  asiChoices?: AsiChoice[];
 }
 
 // ─── Spell Slot Tables ────────────────────────────────────────────────────────
@@ -133,6 +141,15 @@ const RACE_SPEED: Record<string, number> = {
 };
 const SUBRACE_SPEED: Record<string, number> = {
   'Wood Elf': 35,
+};
+
+// Darkvision ranges by race/subrace
+const RACE_DARKVISION: Record<string, number> = {
+  Elf: 60, Dwarf: 60, Gnome: 60, 'Half-Elf': 60, 'Half-Orc': 60, Tiefling: 60,
+  // Human, Halfling, Dragonborn have no darkvision (0)
+};
+const SUBRACE_DARKVISION: Record<string, number> = {
+  'Drow': 120,  // Superior Darkvision
 };
 
 // Starting AC bonuses from armor (check equipment list for armor names)
@@ -290,10 +307,83 @@ router.post(
         }
       }
 
-      // 3. Starting equipment
+      // 3. Starting equipment (with improved matching and weapon fallbacks)
+      // Common weapon data for fallback stubs
+      const WEAPON_DATA: Record<string, { damage: string; damageType: string; weaponType: string; properties?: string[] }> = {
+        'longsword': { damage: '1d8', damageType: 'slashing', weaponType: 'martialM', properties: ['ver'] },
+        'shortsword': { damage: '1d6', damageType: 'piercing', weaponType: 'martialM', properties: ['fin', 'lgt'] },
+        'greatsword': { damage: '2d6', damageType: 'slashing', weaponType: 'martialM', properties: ['hvy', 'two'] },
+        'rapier': { damage: '1d8', damageType: 'piercing', weaponType: 'martialM', properties: ['fin'] },
+        'scimitar': { damage: '1d6', damageType: 'slashing', weaponType: 'martialM', properties: ['fin', 'lgt'] },
+        'dagger': { damage: '1d4', damageType: 'piercing', weaponType: 'simpleM', properties: ['fin', 'lgt', 'thr'] },
+        'handaxe': { damage: '1d6', damageType: 'slashing', weaponType: 'simpleM', properties: ['lgt', 'thr'] },
+        'javelin': { damage: '1d6', damageType: 'piercing', weaponType: 'simpleM', properties: ['thr'] },
+        'light crossbow': { damage: '1d8', damageType: 'piercing', weaponType: 'simpleR', properties: ['amm', 'lod', 'two'] },
+        'shortbow': { damage: '1d6', damageType: 'piercing', weaponType: 'simpleR', properties: ['amm', 'two'] },
+        'longbow': { damage: '1d8', damageType: 'piercing', weaponType: 'martialR', properties: ['amm', 'hvy', 'two'] },
+        'heavy crossbow': { damage: '1d10', damageType: 'piercing', weaponType: 'martialR', properties: ['amm', 'hvy', 'lod', 'two'] },
+        'battleaxe': { damage: '1d8', damageType: 'slashing', weaponType: 'martialM', properties: ['ver'] },
+        'warhammer': { damage: '1d8', damageType: 'bludgeoning', weaponType: 'martialM', properties: ['ver'] },
+        'mace': { damage: '1d6', damageType: 'bludgeoning', weaponType: 'simpleM' },
+        'quarterstaff': { damage: '1d6', damageType: 'bludgeoning', weaponType: 'simpleM', properties: ['ver'] },
+        'spear': { damage: '1d6', damageType: 'piercing', weaponType: 'simpleM', properties: ['thr', 'ver'] },
+        'greataxe': { damage: '1d12', damageType: 'slashing', weaponType: 'martialM', properties: ['hvy', 'two'] },
+        'glaive': { damage: '1d10', damageType: 'slashing', weaponType: 'martialM', properties: ['hvy', 'rch', 'two'] },
+        'halberd': { damage: '1d10', damageType: 'slashing', weaponType: 'martialM', properties: ['hvy', 'rch', 'two'] },
+        'maul': { damage: '2d6', damageType: 'bludgeoning', weaponType: 'martialM', properties: ['hvy', 'two'] },
+        'morningstar': { damage: '1d8', damageType: 'piercing', weaponType: 'martialM' },
+        'flail': { damage: '1d8', damageType: 'bludgeoning', weaponType: 'martialM' },
+        'trident': { damage: '1d6', damageType: 'piercing', weaponType: 'martialM', properties: ['thr', 'ver'] },
+        'war pick': { damage: '1d8', damageType: 'piercing', weaponType: 'martialM' },
+        'whip': { damage: '1d4', damageType: 'slashing', weaponType: 'martialM', properties: ['fin', 'rch'] },
+        'club': { damage: '1d4', damageType: 'bludgeoning', weaponType: 'simpleM', properties: ['lgt'] },
+        'greatclub': { damage: '1d8', damageType: 'bludgeoning', weaponType: 'simpleM', properties: ['two'] },
+        'sickle': { damage: '1d4', damageType: 'slashing', weaponType: 'simpleM', properties: ['lgt'] },
+        'light hammer': { damage: '1d4', damageType: 'bludgeoning', weaponType: 'simpleM', properties: ['lgt', 'thr'] },
+        'hand crossbow': { damage: '1d6', damageType: 'piercing', weaponType: 'martialR', properties: ['amm', 'lgt', 'lod'] },
+        'sling': { damage: '1d4', damageType: 'bludgeoning', weaponType: 'simpleR', properties: ['amm'] },
+        'dart': { damage: '1d4', damageType: 'piercing', weaponType: 'simpleR', properties: ['fin', 'thr'] },
+      };
+
+      // Armor AC values for fallback
+      const ARMOR_DATA: Record<string, { ac: number; type: string; maxDex?: number; stealthDisadvantage?: boolean }> = {
+        'leather armor': { ac: 11, type: 'light' },
+        'studded leather': { ac: 12, type: 'light' },
+        'hide armor': { ac: 12, type: 'medium', maxDex: 2 },
+        'chain shirt': { ac: 13, type: 'medium', maxDex: 2 },
+        'scale mail': { ac: 14, type: 'medium', maxDex: 2, stealthDisadvantage: true },
+        'breastplate': { ac: 14, type: 'medium', maxDex: 2 },
+        'half plate': { ac: 15, type: 'medium', maxDex: 2, stealthDisadvantage: true },
+        'ring mail': { ac: 14, type: 'heavy', stealthDisadvantage: true },
+        'chain mail': { ac: 16, type: 'heavy', stealthDisadvantage: true },
+        'splint': { ac: 17, type: 'heavy', stealthDisadvantage: true },
+        'plate': { ac: 18, type: 'heavy', stealthDisadvantage: true },
+        'shield': { ac: 2, type: 'shield' },
+      };
+
       for (const equipName of startingEquipment) {
         const { name: lookupName, quantity } = parseItemName(equipName);
-        const compItem = await foundrySyncService.findCompendiumItem('dnd5e.items', lookupName);
+        const lowerName = lookupName.toLowerCase();
+
+        // Try exact match first
+        let compItem = await foundrySyncService.findCompendiumItem('dnd5e.items', lookupName);
+
+        // Try variations if not found
+        if (!compItem) {
+          // Remove common suffixes/prefixes and try again
+          const variations = [
+            lookupName.replace(/\s*\([^)]*\)/g, '').trim(), // Remove parenthetical
+            lookupName.replace(/'s$/i, '').trim(), // Remove possessive
+            lookupName.replace(/\s+/g, ' ').trim(), // Normalize spaces
+          ];
+          for (const variant of variations) {
+            if (variant !== lookupName) {
+              compItem = await foundrySyncService.findCompendiumItem('dnd5e.items', variant);
+              if (compItem) break;
+            }
+          }
+        }
+
         if (compItem) {
           const entry = { ...compItem };
           delete (entry as Record<string, unknown>)._id;
@@ -302,16 +392,60 @@ router.post(
             system: { ...(entry.system as Record<string, unknown>), quantity },
           });
         } else {
-          // Fallback: loot stub — still appears in Equipment tab
-          resolvedItems.push({
-            name: equipName,
-            type: 'loot',
-            system: {
-              description: { value: '' },
-              quantity,
-              weight: { value: 0, units: 'lb' },
-            },
-          });
+          // Check if it's a weapon
+          const weaponKey = Object.keys(WEAPON_DATA).find(w => lowerName.includes(w));
+          if (weaponKey) {
+            const wpn = WEAPON_DATA[weaponKey];
+            resolvedItems.push({
+              name: lookupName,
+              type: 'weapon',
+              system: {
+                description: { value: '' },
+                quantity,
+                weight: { value: 0, units: 'lb' },
+                equipped: false,
+                damage: { parts: [[wpn.damage, wpn.damageType]], versatile: '' },
+                type: { value: wpn.weaponType },
+                properties: (wpn.properties || []).reduce((acc: Record<string, boolean>, p: string) => { acc[p] = true; return acc; }, {}),
+                proficient: true,
+                actionType: wpn.weaponType.endsWith('R') ? 'rwak' : 'mwak',
+              },
+            });
+          }
+          // Check if it's armor
+          else if (Object.keys(ARMOR_DATA).some(a => lowerName.includes(a))) {
+            const armorKey = Object.keys(ARMOR_DATA).find(a => lowerName.includes(a))!;
+            const arm = ARMOR_DATA[armorKey];
+            resolvedItems.push({
+              name: lookupName,
+              type: arm.type === 'shield' ? 'equipment' : 'equipment',
+              system: {
+                description: { value: '' },
+                quantity,
+                weight: { value: 0, units: 'lb' },
+                equipped: false,
+                armor: {
+                  value: arm.ac,
+                  type: arm.type,
+                  dex: arm.maxDex ?? null,
+                },
+                type: { value: arm.type === 'shield' ? 'shield' : 'armor' },
+                stealth: arm.stealthDisadvantage ? true : false,
+              },
+            });
+          }
+          // Default to loot for other items
+          else {
+            resolvedItems.push({
+              name: equipName,
+              type: 'loot',
+              system: {
+                description: { value: '' },
+                quantity,
+                weight: { value: 0, units: 'lb' },
+              },
+            });
+          }
         }
       }
 
@@ -339,7 +473,184 @@ router.post(
         }
       }
 
-      logInfo('Resolved embedded items', { count: resolvedItems.length, class: data.class, spells: allSpells.length });
+      // 5. Race item (from dnd5e.races compendium)
+      const fullRaceName = data.subrace ? `${data.race} (${data.subrace})` : data.race;
+      // Try subrace first, then base race
+      let raceItem = data.subrace
+        ? await foundrySyncService.findCompendiumItem('dnd5e.races', data.subrace)
+        : null;
+      if (!raceItem) {
+        raceItem = await foundrySyncService.findCompendiumItem('dnd5e.races', data.race);
+      }
+
+      if (raceItem) {
+        const entry = { ...raceItem };
+        delete (entry as Record<string, unknown>)._id;
+        resolvedItems.push(entry);
+        logInfo('Race item resolved from compendium', { race: fullRaceName });
+      } else {
+        // Fallback: create race stub
+        resolvedItems.push({
+          name: fullRaceName,
+          type: 'race',
+          system: {
+            description: { value: `<p>${data.race}${data.subrace ? ` - ${data.subrace}` : ''}</p>` },
+            identifier: data.race.toLowerCase().replace(/\s+/g, '-'),
+          },
+        });
+        logInfo('Race not found in compendium, using stub', { race: fullRaceName });
+      }
+
+      // 6. Background item (from dnd5e.backgrounds compendium)
+      const bgItem = await foundrySyncService.findCompendiumItem('dnd5e.backgrounds', data.background);
+      if (bgItem) {
+        const entry = { ...bgItem };
+        delete (entry as Record<string, unknown>)._id;
+        resolvedItems.push(entry);
+        logInfo('Background item resolved from compendium', { background: data.background });
+      } else {
+        // Fallback: create background stub
+        resolvedItems.push({
+          name: data.background,
+          type: 'background',
+          system: {
+            description: { value: `<p>${data.background} background</p>` },
+            identifier: data.background.toLowerCase().replace(/\s+/g, '-'),
+          },
+        });
+        logInfo('Background not found in compendium, using stub', { background: data.background });
+      }
+
+      // 7. Race features (try to find in dnd5e.feats, fallback to stubs)
+      // Common racial traits to look up
+      const RACE_FEATURES: Record<string, string[]> = {
+        'Elf': ['Darkvision', 'Fey Ancestry', 'Trance', 'Keen Senses'],
+        'High Elf': ['Cantrip'],
+        'Wood Elf': ['Mask of the Wild', 'Fleet of Foot'],
+        'Drow': ['Superior Darkvision', 'Sunlight Sensitivity', 'Drow Magic'],
+        'Dwarf': ['Darkvision', 'Dwarven Resilience', 'Stonecunning'],
+        'Hill Dwarf': ['Dwarven Toughness'],
+        'Mountain Dwarf': ['Dwarven Armor Training'],
+        'Halfling': ['Lucky', 'Brave', 'Halfling Nimbleness'],
+        'Lightfoot': ['Naturally Stealthy'],
+        'Stout': ['Stout Resilience'],
+        'Dragonborn': ['Breath Weapon', 'Damage Resistance'],
+        'Gnome': ['Darkvision', 'Gnome Cunning'],
+        'Forest Gnome': ['Natural Illusionist', 'Speak with Small Beasts'],
+        'Rock Gnome': ["Artificer's Lore", 'Tinker'],
+        'Half-Elf': ['Darkvision', 'Fey Ancestry', 'Skill Versatility'],
+        'Half-Orc': ['Darkvision', 'Relentless Endurance', 'Savage Attacks'],
+        'Tiefling': ['Darkvision', 'Hellish Resistance', 'Infernal Legacy'],
+        'Human': [],
+      };
+
+      const raceFeatures = [
+        ...(RACE_FEATURES[data.race] || []),
+        ...(data.subrace ? (RACE_FEATURES[data.subrace] || []) : []),
+      ];
+
+      for (const featureName of raceFeatures) {
+        const featItem = await foundrySyncService.findCompendiumItem('dnd5e.feats', featureName);
+        if (featItem) {
+          const entry = { ...featItem };
+          delete (entry as Record<string, unknown>)._id;
+          resolvedItems.push(entry);
+        } else {
+          // Create a stub feat for the racial feature
+          resolvedItems.push({
+            name: featureName,
+            type: 'feat',
+            system: {
+              type: { value: 'race', subtype: '' },
+              description: { value: `<p>Racial feature: ${featureName}</p>` },
+            },
+          });
+        }
+      }
+
+      // 8. Background feature (try dnd5e.feats, fallback to stub)
+      const BACKGROUND_FEATURES: Record<string, string> = {
+        'Acolyte': 'Shelter of the Faithful',
+        'Charlatan': 'False Identity',
+        'Criminal': 'Criminal Contact',
+        'Entertainer': 'By Popular Demand',
+        'Folk Hero': 'Rustic Hospitality',
+        'Guild Artisan': 'Guild Membership',
+        'Hermit': 'Discovery',
+        'Noble': 'Position of Privilege',
+        'Outlander': 'Wanderer',
+        'Sage': 'Researcher',
+        'Sailor': "Ship's Passage",
+        'Soldier': 'Military Rank',
+        'Urchin': 'City Secrets',
+      };
+
+      const bgFeatureName = BACKGROUND_FEATURES[data.background];
+      if (bgFeatureName) {
+        const bgFeatItem = await foundrySyncService.findCompendiumItem('dnd5e.feats', bgFeatureName);
+        if (bgFeatItem) {
+          const entry = { ...bgFeatItem };
+          delete (entry as Record<string, unknown>)._id;
+          resolvedItems.push(entry);
+        } else {
+          // Create stub for background feature
+          resolvedItems.push({
+            name: bgFeatureName,
+            type: 'feat',
+            system: {
+              type: { value: 'background', subtype: '' },
+              description: { value: `<p>Background feature from ${data.background}</p>` },
+            },
+          });
+        }
+      }
+
+      // 9. ASI choices and Feats
+      const ABILITY_NAMES: Record<string, string> = {
+        str: 'Strength', dex: 'Dexterity', con: 'Constitution',
+        int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma',
+      };
+
+      for (const choice of data.asiChoices ?? []) {
+        if (choice.type === 'asi' && choice.improvements) {
+          // Create an ASI feat item
+          const improvements = Object.entries(choice.improvements)
+            .filter(([, val]) => val && val > 0)
+            .map(([key, val]) => `+${val} ${ABILITY_NAMES[key] || key.toUpperCase()}`)
+            .join(', ');
+
+          resolvedItems.push({
+            name: `Ability Score Improvement (Level ${choice.asiLevel})`,
+            type: 'feat',
+            system: {
+              type: { value: 'class', subtype: '' },
+              description: { value: `<p>Ability Score Improvement: ${improvements}</p>` },
+              requirements: `${data.class} ${choice.asiLevel}`,
+            },
+          });
+        } else if (choice.type === 'feat' && choice.feat) {
+          // Try to find feat in compendium
+          const featItem = await foundrySyncService.findCompendiumItem('dnd5e.feats', choice.feat);
+          if (featItem) {
+            const entry = { ...featItem };
+            delete (entry as Record<string, unknown>)._id;
+            resolvedItems.push(entry);
+          } else {
+            // Create stub feat
+            resolvedItems.push({
+              name: choice.feat,
+              type: 'feat',
+              system: {
+                type: { value: 'feat', subtype: '' },
+                description: { value: `<p>${choice.feat} - chosen at level ${choice.asiLevel}</p>` },
+                requirements: `${data.class} ${choice.asiLevel}`,
+              },
+            });
+          }
+        }
+      }
+
+      logInfo('Resolved embedded items', { count: resolvedItems.length, class: data.class, spells: allSpells.length, race: fullRaceName, background: data.background, asiChoices: (data.asiChoices ?? []).length });
 
       // Use class compendium icon for the actor portrait + token art
       const actorImg = (classCompItem as Record<string, unknown> | null)?.img as string
@@ -357,14 +668,14 @@ router.post(
           texture: { src: actorImg },
           sight: {
             enabled: true,
-            range: 60,          // 60 ft darkvision default — DM can adjust per-token
+            range: SUBRACE_DARKVISION[data.subrace ?? ''] ?? RACE_DARKVISION[data.race] ?? 0,
             angle: 360,
-            visionMode: 'basic',
+            visionMode: (SUBRACE_DARKVISION[data.subrace ?? ''] ?? RACE_DARKVISION[data.race] ?? 0) > 0 ? 'darkvision' : 'basic',
           },
           detectionModes: [{
             id: 'basicSight',
             enabled: true,
-            range: 60,
+            range: SUBRACE_DARKVISION[data.subrace ?? ''] ?? RACE_DARKVISION[data.race] ?? 0,
           }],
         },
         items: resolvedItems,
@@ -458,7 +769,8 @@ Required JSON structure (all fields required unless marked optional):
   "name": "a fitting fantasy name as a string",
   "race": "one of: Human, Elf, Dwarf, Halfling, Dragonborn, Gnome, Half-Elf, Half-Orc, Tiefling",
   "subrace": "optional string, e.g. High Elf / Wood Elf / Hill Dwarf / Lightfoot — omit for races with no subraces",
-  "class": "one of: Barbarian, Bard, Cleric, Druid, Fighter, Monk, Paladin, Ranger, Rogue, Sorcerer, Warlock, Wizard",
+  "class": "one of: Artificer, Barbarian, Bard, Cleric, Druid, Fighter, Monk, Paladin, Ranger, Rogue, Sorcerer, Warlock, Wizard",
+  "subclass": "REQUIRED for Cleric, Sorcerer, Warlock (they choose at level 1); optional for others",
   "background": "one of: Acolyte, Charlatan, Criminal, Entertainer, Folk Hero, Guild Artisan, Hermit, Noble, Outlander, Sage, Sailor, Soldier, Urchin",
   "abilityScores": {
     "str": 10,
@@ -470,6 +782,10 @@ Required JSON structure (all fields required unless marked optional):
   },
   "chosenSkills": ["acr", "ste"],
   "alignment": "one of: Lawful Good, Neutral Good, Chaotic Good, Lawful Neutral, True Neutral, Chaotic Neutral, Lawful Evil, Neutral Evil, Chaotic Evil",
+  "personalityTraits": "Two distinct personality traits that define how the character acts",
+  "ideals": "What the character believes in or strives for (connected to alignment)",
+  "bonds": "What or who the character cares about most deeply",
+  "flaws": "A character weakness, vice, or fear that could cause problems",
   "backstory": "2-3 paragraph backstory",
   "startingEquipment": ["Longsword", "Chain Mail", "Shield"],
   "startingGold": 15,
@@ -478,10 +794,12 @@ Required JSON structure (all fields required unless marked optional):
 
 Rules:
 - abilityScores must use the Standard Array [15,14,13,12,10,8] distributed based on class needs — all 6 values must be integers, no text
-- chosenSkills must be 2-4 keys from: acr,ani,arc,ath,dec,his,ins,itm,inv,med,nat,prc,prf,per,rel,slt,ste,sur
+- chosenSkills count depends on class: Bard=3, Ranger=3, Rogue=4, all others=2. Keys from: acr,ani,arc,ath,dec,his,ins,itm,inv,med,nat,prc,prf,per,rel,slt,ste,sur
 - startingGold must be an integer between 5 and 25
 - Match race/class/background to the concept; pick a culturally appropriate name
-- Backstory should be 2-3 engaging paragraphs in English`;
+- Backstory should be 2-3 engaging paragraphs in English
+- subclass options: Cleric domains (Knowledge, Life, Light, Nature, Tempest, Trickery, War), Sorcerer origins (Draconic Bloodline, Wild Magic), Warlock patrons (Archfey, Fiend, Great Old One)
+- personalityTraits, ideals, bonds, and flaws should be specific to this character and fit their concept`;
 
     try {
       logInfo('Generating AI character', { concept: concept.slice(0, 100) });

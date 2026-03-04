@@ -97,6 +97,11 @@ services:
       FOUNDRY_PASSWORD: ${FOUNDRY_PASSWORD}
       FOUNDRY_WORLD: ${FOUNDRY_WORLD:-test}
       CONTAINER_PATCHES: /data/container_patches
+      FOUNDRY_UID: 1000
+      FOUNDRY_GID: 1000
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       - foundry_data:/data
       - ./foundry/container_patches:/data/container_patches:ro
